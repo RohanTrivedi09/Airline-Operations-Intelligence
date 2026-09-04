@@ -59,8 +59,8 @@ scripts/          smoke_test.py
 | 01 | `data_loading` — load, quality audit, raw Parquet | **Done, executed, verified** |
 | 02 | `data_cleaning_etl` — 11 rules, row-count contract, curated Parquet | **Done, executed, verified** |
 | 03 | `rdd_mapreduce_demo` — MapReduce, RDD internals, API benchmark | **Done, executed, verified** |
-| 04 | `sparksql_demo` | Next |
-| 05 | `aggregations` | — |
+| 04 | `sparksql_demo` — views, SQL vs DataFrame equivalence, Catalyst | **Done, executed, verified** |
+| 05 | `aggregations` | Next |
 | 06 | `ml_classification` | — |
 | 07 | `ml_clustering` | — |
 | 08 | `mongodb_push` | — (MongoDB deferred until pipeline is proven) |
@@ -129,3 +129,28 @@ mode there is no network for a combiner to save, values are 1-byte integers, and
 serialisation dominates. The guidance still holds on a real cluster — `groupByKey` can OOM
 when one key's values exceed executor memory — but this benchmark cannot show it. See
 `docs/engineering_decisions.md`.
+
+## Notebook 04 results
+
+**SparkSQL and the DataFrame API proven identical** — 14 airline rows asserted equal, not
+eyeballed. Both compile to the same Catalyst plan (verified in notebook 03).
+
+**`HAVING` as a bias control.** The same "worst airports" query, with and without a
+minimum-sample threshold:
+
+| Without threshold | | With `HAVING COUNT(*) >= 10000` | |
+|---|---|---|---|
+| GST | 44.74% on **76 flights** | LGA | 23.39% on **103,281 flights** |
+| ADK | 43.30% on **97 flights** | ORD | 23.12% on **304,120 flights** |
+
+The unfiltered ranking is noise. This implements the small-sample bias mitigation the
+proposal commits to, enforced in the SQL layer.
+
+**Catalyst optimisation, read off the physical plan:**
+- `PartitionFilters: [(month = 7)]` — prunes 11 of 12 partition directories at file level
+- `PushedFilters: [EqualTo(status,completed)]` — evaluated inside the Parquet reader
+- `ReadSchema: 3 of 49 columns` — the other 46 are never read
+
+One subtlety worth knowing: a **cached** relation is substituted for a file scan, which
+hides all file-level pruning. The notebook clears the cache before this demonstration and
+says why — otherwise the plan silently shows the wrong thing.
