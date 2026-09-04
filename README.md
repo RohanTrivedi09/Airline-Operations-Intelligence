@@ -61,8 +61,8 @@ scripts/          smoke_test.py
 | 03 | `rdd_mapreduce_demo` — MapReduce, RDD internals, API benchmark | **Done, executed, verified** |
 | 04 | `sparksql_demo` — views, SQL vs DataFrame equivalence, Catalyst | **Done, executed, verified** |
 | 05 | `aggregations` — 8 dashboard marts, validated | **Done, executed, verified** |
-| 06 | `ml_classification` | Next |
-| 07 | `ml_clustering` | — |
+| 06 | `ml_classification` — LR + Random Forest, leakage-controlled | **Done, executed, verified** |
+| 07 | `ml_clustering` | Next |
 | 08 | `mongodb_push` | — (MongoDB deferred until pipeline is proven) |
 | 09 | `streaming_demo` *(extension)* | — |
 | 10 | `spark_concepts_doc` | — |
@@ -198,3 +198,41 @@ Delay causes, over the 1,063,439 flights arriving 15+ min late:
 ### Validation
 KPIs cross-checked against independent direct queries (all match to 0.01), and airline,
 airport and route totals each reconcile to exactly 5,819,078 rows.
+
+## Notebook 06 results — delay prediction
+
+Trained **locally** on 4,675,637 rows; Random Forest took 134s on 8 GB, so the Colab
+fallback was not needed.
+
+| Metric | Logistic Regression | Random Forest | Baseline |
+|---|---|---|---|
+| Accuracy | 0.6005 | 0.6098 | **0.8139** |
+| Precision | 0.2608 | 0.2678 | — |
+| Recall | 0.6248 | **0.6324** | — |
+| F1 | 0.3680 | **0.3763** | — |
+| ROC-AUC | 0.6501 | **0.6626** | — |
+
+**Accuracy is below the baseline, and that is the intended trade.** Class weighting
+(4.373× on the minority class) sacrifices accuracy to catch delays: the Random Forest
+identifies **134,596 of 212,844 delayed flights (63%)**, where an unweighted model scoring
+81.4% accuracy would catch almost none. ROC-AUC 0.663 is the fair summary — the model
+carries real signal, well above the 0.5 of random guessing.
+
+Top features (Gini importance, names resolved from vector metadata):
+
+| Feature | Importance |
+|---|---|
+| `sched_dep_hour` | 0.2317 |
+| `route_delay_rate` | 0.1743 |
+| `time_of_day=morning` | 0.1077 |
+| `season=autumn` | 0.0728 |
+| `airline_delay_rate` | 0.0666 |
+
+### Method notes that matter
+- **Leakage controlled in code**, not comments: a `BANNED` set (dep_delay, taxi times,
+  air_time, actual times, cause columns) is asserted against the feature set before training.
+- **Historical rate features are computed from the training split only**, with Bayesian
+  smoothing toward the global mean, so test outcomes never leak into training features.
+- **The ceiling is inherent.** Pre-departure features cannot capture the inbound aircraft
+  running late (39.8% of delay minutes), day-of weather, or ATC decisions. Large
+  irreducible error is the correct result here, not a modelling failure.
