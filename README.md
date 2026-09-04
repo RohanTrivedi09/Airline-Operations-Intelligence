@@ -64,8 +64,8 @@ scripts/          smoke_test.py
 | 06 | `ml_classification` — LR + Random Forest, leakage-controlled | **Done, executed, verified** |
 | 07 | `ml_clustering` — K-Means airport profiles | **Done, executed, verified** |
 | 08 | `mongodb_push` — 10 collections, indexed | **Done, executed, verified** |
-| 09 | `streaming_demo` *(extension)* | Next |
-| 10 | `spark_concepts_doc` | — |
+| 09 | `streaming_demo` *(extension)* — Structured Streaming | **Done, executed, verified** |
+| 10 | `spark_concepts_doc` — architecture, DAG, fault tolerance | **Done, executed, verified** |
 | — | Streamlit dashboard — 6 pages | **Done, all pages executed and verified** |
 
 ## Key findings from notebook 01
@@ -316,3 +316,34 @@ all pages still rendered.
 
 Prediction path verified end to end: LAX→JFK, July, 17:00 departure → **54.3% delay
 probability, MEDIUM risk**, against the 18.6% network baseline.
+
+## Notebooks 09 & 10
+
+### 09 — Structured Streaming `[Extension]`
+
+Replays one day (16,989 flights) through a file source in 6 micro-batches. State
+accumulates correctly across batches (2,832 → 16,989), and the final streaming result is
+**asserted identical to the batch result** — the same DataFrame code, two execution modes.
+
+Also demonstrates windowed aggregation over event time with a watermark, and shows the
+checkpoint contents (`offsets`, `commits`, `state`, `sources`) that give exactly-once
+recovery.
+
+Stated honestly in the notebook: a file source on one machine is not Kafka. The
+*programming model* is identical, but partitioned consumption, replay from offsets and
+back-pressure are not exercised.
+
+### 10 — Spark concepts reference
+
+Every Unit 4 claim demonstrated on the real dataset rather than asserted:
+
+| Concept | Measured |
+|---|---|
+| Lazy evaluation | 5 transformations 0.29s → `collect()` 1.22s |
+| Narrow vs wide | 0.19s → 0.41s once a shuffle is introduced |
+| Partitioning | 24 partitions 0.99s vs 200 partitions 1.93s (scheduling overhead) |
+| Caching a shuffled aggregate | 1.60s → 0.22s (**7.2×**) |
+| Fault tolerance | Cache destroyed, result **recomputed from lineage** and asserted identical |
+
+The fault-tolerance section does not describe lineage — it destroys every cached partition
+and rebuilds the result, then asserts equality with the pre-loss answer.
