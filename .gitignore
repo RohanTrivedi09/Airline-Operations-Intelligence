@@ -28,3 +28,4 @@ spark-warehouse/
 notebooks/spark-warehouse/
 notebooks/artifacts/
 artifacts/
+data/weather/
