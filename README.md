@@ -67,6 +67,7 @@ scripts/          smoke_test.py
 | 09 | `streaming_demo` *(extension)* — Structured Streaming | **Done, executed, verified** |
 | 10 | `spark_concepts_doc` — architecture, DAG, fault tolerance | **Done, executed, verified** |
 | — | Streamlit dashboard — 6 pages | **Done, all pages executed and verified** |
+| — | Documentation — report, data dictionary, NoSQL | **Done** |
 
 ## Key findings from notebook 01
 
@@ -347,3 +348,24 @@ Every Unit 4 claim demonstrated on the real dataset rather than asserted:
 
 The fault-tolerance section does not describe lineage — it destroys every cached partition
 and rebuilds the result, then asserts equality with the pre-loss answer.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/project_report.md`](docs/project_report.md) | Full report covering all six syllabus units, every figure measured on the running system |
+| [`docs/data_dictionary.md`](docs/data_dictionary.md) | All 49 curated columns with real null percentages, generated from the live schema; marks post-departure fields excluded from the model |
+| [`docs/nosql_comparison.md`](docs/nosql_comparison.md) | RDBMS vs NoSQL, CAP, the four NoSQL families, document modelling, indexing, sharding and replication |
+| [`docs/engineering_decisions.md`](docs/engineering_decisions.md) | Rejected approaches, defects caught, limitations accepted |
+
+## Project status: complete
+
+All 10 notebooks executed and verified, dashboard tested, documentation written.
+
+| Optimisation | Gain |
+|---|---|
+| DataFrame vs RDD | 53× |
+| MongoDB index (docs scanned) | 4,706× |
+| Explicit schema vs inference | 8.2× |
+| Caching a shuffled aggregate | 7.2× |
+| CSV → Parquet storage | 3.9× |
