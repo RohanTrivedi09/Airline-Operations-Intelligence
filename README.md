@@ -58,8 +58,8 @@ scripts/          smoke_test.py
 |---|---|---|
 | 01 | `data_loading` — load, quality audit, raw Parquet | **Done, executed, verified** |
 | 02 | `data_cleaning_etl` — 11 rules, row-count contract, curated Parquet | **Done, executed, verified** |
-| 03 | `rdd_mapreduce_demo` | Next |
-| 04 | `sparksql_demo` | — |
+| 03 | `rdd_mapreduce_demo` — MapReduce, RDD internals, API benchmark | **Done, executed, verified** |
+| 04 | `sparksql_demo` | Next |
 | 05 | `aggregations` | — |
 | 06 | `ml_classification` | — |
 | 07 | `ml_clustering` | — |
@@ -107,3 +107,25 @@ The mapping is reconstructed from the dataset itself:
 Every stage asserts a row-count contract, and the airport join asserts zero unmatched rows.
 The decisive check: October now reports 486,165 of 486,165 flights with airport metadata,
 and its delay rate (12.44%) sits naturally beside September's 13.00%.
+
+## Notebook 03 results — measured, on 5,819,078 rows
+
+| Same query, three APIs | Time | vs RDD |
+|---|---|---|
+| RDD `map`/`reduceByKey` | 21.91s | 1.0× |
+| DataFrame `groupBy().agg()` | 0.41s | **53×** |
+| SparkSQL | 0.28s | **78×** |
+
+All three return identical results; DataFrame and SparkSQL compile to the *same* Catalyst
+plan (verified after normalising expression ids). Average delay per airline: RDD needs
+manual `(sum, count)` plumbing and runs 21.9× slower than one `groupBy().agg()`.
+
+**Iterative workload** (5 passes): 29.52s recomputing vs 12.39s cached — **2.4×**. This is
+the limitation that makes classical MapReduce impractical for machine learning.
+
+**A negative result, reported as such:** `reduceByKey` vs `groupByKey` shows only ~1.2×
+across four key cardinalities (14 → 4,898 keys), not the dramatic textbook gap. In local
+mode there is no network for a combiner to save, values are 1-byte integers, and PySpark
+serialisation dominates. The guidance still holds on a real cluster — `groupByKey` can OOM
+when one key's values exceed executor memory — but this benchmark cannot show it. See
+`docs/engineering_decisions.md`.
