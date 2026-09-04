@@ -141,3 +141,36 @@ shutil.move(str(tmp_path), str(final_path))
 **The lesson worth reporting:** `overwrite` is not atomic. A failure between "delete
 target" and "write output" leaves no data at all. Any pipeline stage that updates a
 dataset in place needs the temp-then-swap pattern, or it can destroy the input it depends on.
+
+---
+
+## D5 — Retracted finding: the scaling "memory wall" that wasn't
+
+A sample-vs-full-dataset benchmark (notebook 10 §5b) initially produced:
+
+| Sample | Time | Throughput |
+|---|---|---|
+| 50% | 2.76s | 1.05M rows/s |
+| 100% | 17.88s | 0.33M rows/s |
+
+Doubling the data cost **6.5× the time** while throughput collapsed. This was written up as
+an 8 GB memory wall — the shuffle no longer fitting in memory and spilling to disk. The
+mechanism is real, the explanation was plausible, and it fit the project's known constraint.
+
+**It was wrong.** An unrelated GBT training job (notebook 12) was running concurrently and
+competing for CPU and memory. Re-run on an idle machine:
+
+| Sample | Time | Throughput |
+|---|---|---|
+| 50% | 2.76s | 1.05M rows/s |
+| 100% | 3.54s | 1.64M rows/s |
+
+Sub-linear, throughput rising — the textbook result.
+
+**Why this was easy to get wrong:** a plausible mechanism was available that explained the
+artefact and matched a constraint already known to exist. That is exactly the condition
+under which a measurement error becomes a confident conclusion.
+
+**The rule that follows:** a timing on a shared machine measures the machine, not the code.
+Performance claims must come from an otherwise-idle system, and a result that conveniently
+confirms an expected limitation deserves *more* scrutiny than one that surprises.
