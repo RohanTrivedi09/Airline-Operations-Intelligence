@@ -63,10 +63,10 @@ scripts/          smoke_test.py
 | 05 | `aggregations` — 8 dashboard marts, validated | **Done, executed, verified** |
 | 06 | `ml_classification` — LR + Random Forest, leakage-controlled | **Done, executed, verified** |
 | 07 | `ml_clustering` — K-Means airport profiles | **Done, executed, verified** |
-| 08 | `mongodb_push` | Next |
+| 08 | `mongodb_push` — 10 collections, indexed | **Done, executed, verified** |
 | 09 | `streaming_demo` *(extension)* | — |
 | 10 | `spark_concepts_doc` | — |
-| — | Streamlit dashboard | — |
+| — | Streamlit dashboard | Next |
 
 ## Key findings from notebook 01
 
@@ -259,3 +259,31 @@ recognisable airport types, which is what makes them usable as dashboard labels.
 
 **Scaling is what makes this work:** `total_flights` spans 50–300,000 while rates are
 0–100, so without `StandardScaler` K-Means would simply sort airports by size.
+
+## Notebook 08 results — MongoDB serving layer
+
+```bash
+docker compose up -d      # mongo:7 on localhost:27017
+```
+
+10 collections, **6,076 documents**, 1.76 MB data + 284 KB indexes. Every collection
+verified to match its source mart row-for-row.
+
+**Indexing, measured with `explain()`:**
+
+| | Docs examined | Stage |
+|---|---|---|
+| Before index | 4,706 | `COLLSCAN` |
+| After index | 1 | `IXSCAN` |
+
+Every dashboard query runs in **under 2 ms**:
+
+| Query | Results | Time |
+|---|---|---|
+| Overview KPI cards | 1 | 0.3 ms |
+| Airline ranking | 14 | 0.5 ms |
+| Airport map (clustered) | 80 | 1.3 ms |
+| Route lookup LAX→SFO | 1 | 0.3 ms |
+
+Note the container image is **1.13 GB** (`docker rmi mongo:7` to remove); the data itself
+is under 2 MB.

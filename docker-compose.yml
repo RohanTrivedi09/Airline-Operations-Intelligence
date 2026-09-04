@@ -1,0 +1,16 @@
+# MongoDB serving layer for the dashboard.
+#   docker compose up -d      start
+#   docker compose down       stop (keeps data)
+#   docker compose down -v    stop and delete the data volume
+services:
+  mongo:
+    image: mongo:7
+    container_name: airline-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - airline_mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  airline_mongo_data:
