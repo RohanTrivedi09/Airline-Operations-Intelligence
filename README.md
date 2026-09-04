@@ -60,8 +60,8 @@ scripts/          smoke_test.py
 | 02 | `data_cleaning_etl` — 11 rules, row-count contract, curated Parquet | **Done, executed, verified** |
 | 03 | `rdd_mapreduce_demo` — MapReduce, RDD internals, API benchmark | **Done, executed, verified** |
 | 04 | `sparksql_demo` — views, SQL vs DataFrame equivalence, Catalyst | **Done, executed, verified** |
-| 05 | `aggregations` | Next |
-| 06 | `ml_classification` | — |
+| 05 | `aggregations` — 8 dashboard marts, validated | **Done, executed, verified** |
+| 06 | `ml_classification` | Next |
 | 07 | `ml_clustering` | — |
 | 08 | `mongodb_push` | — (MongoDB deferred until pipeline is proven) |
 | 09 | `streaming_demo` *(extension)* | — |
@@ -154,3 +154,47 @@ proposal commits to, enforced in the SQL layer.
 One subtlety worth knowing: a **cached** relation is substituted for a file scan, which
 hides all file-level pruning. The notebook clears the cache before this demonstration and
 says why — otherwise the plan silently shows the wrong thing.
+
+## Notebook 05 results — the serving layer
+
+Eight marts written to `data/marts/`, matching the MongoDB schemas in proposal §17:
+
+| Mart | Rows | | Mart | Rows |
+|---|---|---|---|---|
+| `overall_kpis` | 1 | | `time_trends` | 47 |
+| `airline_metrics` | 14 | | `delay_distribution` | 6 |
+| `airport_metrics` | 322 | | `delay_causes` | 5 |
+| `route_metrics` | 4,706 | | `airline_airport` | 969 |
+
+**Total mart size: 276 KB**, against 201 MB curated and 565 MB raw CSV. That ratio *is*
+the serving-layer argument — the dashboard reads a few hundred KB instead of scanning
+5.8M rows on every interaction.
+
+### Headline findings
+
+Overall: **81.39% on-time**, 18.61% delayed, 1.54% cancelled, 0.26% diverted,
+avg arrival delay 4.41 min across 322 airports and 4,706 routes.
+
+Best and worst airlines by delay rate (all 14 shown in the mart, with sample sizes):
+
+| Rank | Airline | Flights | On-time % | Delay rate |
+|---|---|---|---|---|
+| 1 | Hawaiian | 76,272 | 88.67% | 11.33% |
+| 2 | Alaska | 172,521 | 86.96% | 13.04% |
+| 3 | Delta | 875,881 | 86.44% | 13.56% |
+| 13 | Frontier | 90,836 | 73.84% | 26.16% |
+| 14 | Spirit | 117,379 | 70.29% | 29.71% |
+
+Delay causes, over the 1,063,439 flights arriving 15+ min late:
+
+| Cause | Share of delay minutes | Avg min per late flight |
+|---|---|---|
+| Late aircraft | 39.84% | 23.47 |
+| Carrier | 32.20% | 18.97 |
+| NAS | 22.88% | 13.48 |
+| Weather | 4.95% | 2.92 |
+| Security | 0.13% | 0.08 |
+
+### Validation
+KPIs cross-checked against independent direct queries (all match to 0.01), and airline,
+airport and route totals each reconcile to exactly 5,819,078 rows.
