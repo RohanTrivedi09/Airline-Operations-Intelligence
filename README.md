@@ -62,8 +62,8 @@ scripts/          smoke_test.py
 | 04 | `sparksql_demo` — views, SQL vs DataFrame equivalence, Catalyst | **Done, executed, verified** |
 | 05 | `aggregations` — 8 dashboard marts, validated | **Done, executed, verified** |
 | 06 | `ml_classification` — LR + Random Forest, leakage-controlled | **Done, executed, verified** |
-| 07 | `ml_clustering` | Next |
-| 08 | `mongodb_push` | — (MongoDB deferred until pipeline is proven) |
+| 07 | `ml_clustering` — K-Means airport profiles | **Done, executed, verified** |
+| 08 | `mongodb_push` | Next |
 | 09 | `streaming_demo` *(extension)* | — |
 | 10 | `spark_concepts_doc` | — |
 | — | Streamlit dashboard | — |
@@ -236,3 +236,26 @@ Top features (Gini importance, names resolved from vector metadata):
 - **The ceiling is inherent.** Pre-departure features cannot capture the inbound aircraft
   running late (39.8% of delay minutes), day-of weather, or ATC decisions. Large
   irreducible error is the correct result here, not a modelling failure.
+
+## Notebook 07 results — airport operational profiles
+
+K-Means over 6 operational features, on the **80 airports** meeting the 10,000-flight
+threshold. The other 242 keep every metric and receive `cluster_id = null` rather than a
+noise-driven label.
+
+k chosen at **4** (silhouette 0.351; WCSS 226.8). Silhouette alone favours k=2 (0.446),
+but two clusters cannot distinguish airport types usefully — both criteria are reported so
+the choice is auditable.
+
+| Cluster | Airports | Avg flights | Delay rate | Largest members |
+|---|---|---|---|---|
+| High-traffic hub, elevated delays | 16 | 170,858 | 20.6% | ATL, ORD, DFW, DEN, LAX, SFO |
+| High-traffic hub, well-managed | 33 | 47,141 | 17.1% | MSP, SEA, DTW, CLT, DCA |
+| Smaller airport, elevated delays | 21 | 26,998 | 18.0% | MDW, MIA, DAL, HOU, IAD |
+| Smaller airport, reliable | 10 | 33,525 | 12.5% | SLC, PDX, HNL, SNA, OGG |
+
+The clusters separate cleanly on delay rate (12.5% → 20.6% across profiles) and map onto
+recognisable airport types, which is what makes them usable as dashboard labels.
+
+**Scaling is what makes this work:** `total_flights` spans 50–300,000 while rates are
+0–100, so without `StandardScaler` K-Means would simply sort airports by size.

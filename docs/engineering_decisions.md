@@ -116,3 +116,28 @@ rankings anyway, so no published metric depends on them.
 | Self-reported delay causes | Airlines report their own carrier/weather/NAS attribution — potential bias |
 | 3 airports lack coordinates (ECP, PBG, UST) | 5,008 flights (0.086%) retained in all metrics, excluded from the map only |
 | Class imbalance: 18.61% delayed | Accuracy is misleading; F1, precision, recall and a baseline comparison are mandatory |
+
+---
+
+## D4 — Defect: `mode("overwrite")` onto a path being read
+
+Notebook 07 reads `airport_metrics.parquet`, adds `cluster_id`/`cluster_label`, and writes
+the result back to the same path. Spark rejects this — the output path is still in the
+DataFrame's lineage — but **`mode("overwrite")` deletes the target directory before the
+job fails**. The mart was destroyed and the next run could not read its own input.
+
+**Recovery:** re-run notebook 05, which regenerates every mart deterministically. No data
+was lost permanently, which is itself the argument for keeping each stage reproducible
+from the stage before it.
+
+**Fix:** write to a temporary directory, then swap:
+
+```python
+enriched.coalesce(1).write.mode("overwrite").parquet(str(tmp_path))
+shutil.rmtree(final_path)
+shutil.move(str(tmp_path), str(final_path))
+```
+
+**The lesson worth reporting:** `overwrite` is not atomic. A failure between "delete
+target" and "write output" leaves no data at all. Any pipeline stage that updates a
+dataset in place needs the temp-then-swap pattern, or it can destroy the input it depends on.
