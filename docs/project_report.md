@@ -347,5 +347,5 @@ uv pip install --python .venv/bin/python "pyspark[sql]==4.0.0" pandas pyarrow \
 .venv/bin/python scripts/smoke_test.py        # expect PASS
 # run notebooks 01 → 10 in order
 docker compose up -d
-.venv/bin/streamlit run app/app.py
+.venv/bin/streamlit run app/Home.py
 ```

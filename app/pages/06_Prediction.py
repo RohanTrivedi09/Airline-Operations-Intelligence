@@ -1,9 +1,10 @@
-"""Delay risk for a hypothetical flight, using the Random Forest from notebook 06.
+"""Delay risk for a hypothetical flight, using the tuned GBT model from notebook 06.
 
-Spark is started lazily and only on this page: loading a SparkSession costs ~20s, and
-the other five pages need nothing but MongoDB reads.
+Spark starts lazily and only on this page: a SparkSession costs ~20s, and the other
+pages need nothing but MongoDB reads.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -11,27 +12,45 @@ import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils import charts, db
+from utils import charts, db, ui
 
 st.set_page_config(page_title="Prediction", page_icon="🔮", layout="wide")
-st.title("🔮 Delay Risk Prediction")
+ui.setup('Delay Risk Prediction', '🔮', 'Model performance and what-if scoring')
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 MODELS = PROJECT_ROOT / "data" / "models"
+RESULTS_JSON = PROJECT_ROOT / "data" / "marts" / "ml_classification_results.json"
 
-results = db.load("ml_classification_results")
-if not results.empty:
-    st.subheader("Model performance")
-    st.caption("Measured on a held-out 20% test split of 1,143,441 flights.")
-    show = results[["model_name", "accuracy", "precision", "recall", "f1",
-                    "roc_auc", "baseline_accuracy"]]
-    st.dataframe(show, hide_index=True, width="stretch")
-    st.warning(
-        "**Read accuracy carefully.** A model that always predicts 'on time' scores "
-        "**81.4%** because only 18.6% of flights are delayed. These models deliberately "
-        "score *lower* accuracy in exchange for actually catching delays — recall is ~63%. "
-        "ROC-AUC (~0.66) is the fair summary, and it is well above the 0.50 of guessing."
-    )
+payload = json.loads(RESULTS_JSON.read_text()) if RESULTS_JSON.exists() else {}
+THRESHOLD = payload.get("best_threshold", 0.5)
+NUMERIC = payload.get("features_used", {}).get("numeric", [])
+CATEGORICAL = payload.get("features_used", {}).get("categorical", [])
+
+# ---------------------------------------------------------------- model performance
+ablation = payload.get("ablation", [])
+if ablation:
+    st.subheader("How the model was built")
+    st.caption("Each change measured on the same held-out test split of "
+               f"{payload.get('test_rows', 0):,} flights. A step that did not help is kept "
+               "in the table as a null result rather than dropped.")
+    tbl = pd.DataFrame(ablation)[["step", "roc_auc", "f1", "recall", "precision", "threshold"]]
+    st.dataframe(tbl, hide_index=True, width="stretch")
+
+    temporal = payload.get("temporal_check")
+    if temporal:
+        best = max(ablation, key=lambda r: r["f1"])
+        c1, c2 = st.columns(2)
+        c1.metric("Best (random split)", f"AUC {best['roc_auc']:.4f}", f"F1 {best['f1']:.4f}")
+        c2.metric("Temporal split (Jan–Sep → Oct–Dec)",
+                  f"AUC {temporal['roc_auc']:.4f}", f"F1 {temporal['f1']:.4f}",
+                  delta_color="inverse")
+        st.warning(
+            "**The temporal number is the honest one for forecasting.** A random split lets "
+            "the model learn from days adjacent to the ones it predicts. Splitting on time "
+            "instead drops ROC-AUC from "
+            f"{best['roc_auc']:.3f} to {temporal['roc_auc']:.3f} — partly because the delay "
+            "rate itself shifts from 19.45% (Jan–Sep) to 16.07% (Oct–Dec)."
+        )
 
 st.markdown("---")
 st.subheader("Estimate risk for a flight")
@@ -39,14 +58,13 @@ st.subheader("Estimate risk for a flight")
 airlines = db.load("airline_metrics")
 airports = db.load("airport_metrics")
 routes = db.load("route_metrics")
-
 if airlines.empty or airports.empty:
-    st.error("Reference data missing. Run notebooks 05-08.")
+    st.error("Reference data missing. Run notebooks 05–08.")
     st.stop()
 
 c1, c2, c3 = st.columns(3)
 airline_name = c1.selectbox("Airline", sorted(airlines["airline_name"]))
-airline_code = airlines[airlines["airline_name"] == airline_name].iloc[0]["airline_code"]
+airline_code = airlines.loc[airlines.airline_name == airline_name, "airline_code"].iloc[0]
 codes = sorted(airports["airport_code"])
 origin = c2.selectbox("Origin", codes, index=codes.index("LAX") if "LAX" in codes else 0)
 dest = c3.selectbox("Destination", codes, index=codes.index("JFK") if "JFK" in codes else 1)
@@ -57,89 +75,147 @@ dow = c5.selectbox("Day of week", [1, 2, 3, 4, 5, 6, 7],
                    format_func=lambda d: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d - 1])
 hour = c6.slider("Scheduled departure hour", 0, 23, 17)
 
+st.markdown("**Weather at origin** — the model uses these directly (notebook 11).")
+w1, w2, w3 = st.columns([2, 1, 1])
+condition = w1.selectbox(
+    "Conditions",
+    ["Typical for this airport and month", "Clear", "Rain", "Fog / low visibility",
+     "Snow", "Thunderstorm", "Freezing precipitation"])
+wind = w2.slider("Wind speed (m/s)", 0, 25, 4)
+temp = w3.slider("Temperature (°C)", -30, 45, 20)
+
 if origin == dest:
     st.error("Origin and destination must differ.")
     st.stop()
 
-route_row = routes[(routes["origin"] == origin) & (routes["destination"] == dest)]
+route_row = routes[(routes.origin == origin) & (routes.destination == dest)]
 distance = int(route_row.iloc[0]["distance"]) if not route_row.empty else 1000
 st.caption(f"Route distance: {distance:,} miles"
-           + ("" if not route_row.empty else " (estimated — route not flown in 2015)"))
+           + ("" if not route_row.empty else " — estimated; route not flown in 2015"))
+
+
+def lookup(collection: str, keys: dict, column: str, default: float) -> float:
+    """Read one smoothed rate from its lookup mart, falling back to the global rate."""
+    df = db.load(collection)
+    if df.empty or column not in df.columns:
+        return default
+    mask = pd.Series(True, index=df.index)
+    for k, v in keys.items():
+        if k not in df.columns:
+            return default
+        mask &= (df[k] == v)
+    hit = df[mask]
+    return float(hit.iloc[0][column]) if not hit.empty else default
+
 
 if st.button("Predict delay risk", type="primary"):
     with st.spinner("Starting Spark and loading the model (~20s on first run)…"):
         sys.path.insert(0, str(PROJECT_ROOT / "src"))
         from config import build_spark
         from pyspark.ml import PipelineModel
-        from pyspark.ml.classification import RandomForestClassificationModel
+        from pyspark.ml.classification import GBTClassificationModel
+        from pyspark.ml.functions import vector_to_array
 
         spark = build_spark("dashboard-prediction")
         prep = PipelineModel.load(str(MODELS / "feature_pipeline"))
-        model = RandomForestClassificationModel.load(str(MODELS / "rf_delay_classifier"))
+        model = GBTClassificationModel.load(str(MODELS / "best_delay_classifier"))
 
-        GLOBAL_RATE = 0.1861
+        defaults = db.load("inference_defaults")
+        g = float(defaults.iloc[0]["global_delay_rate"]) if not defaults.empty else 0.1861
 
-        def rate(df, key_col, key, col):
-            if df.empty or key_col not in df:
-                return GLOBAL_RATE
-            hit = df[df[key_col] == key]
-            return float(hit.iloc[0][col]) / 100.0 if not hit.empty else GLOBAL_RATE
+        # Weather: start from this airport's climatology for the month, then apply
+        # whatever condition the user selected.
+        clim = db.load("weather_climatology")
+        row_w = clim[(clim.origin == origin) & (clim.month == month)] if not clim.empty else pd.DataFrame()
+        wx = row_w.iloc[0].to_dict() if not row_w.empty else {}
 
-        time_of_day = ("night" if hour < 6 else "morning" if hour < 12
-                       else "afternoon" if hour < 18 else "evening")
-        season = ("winter" if month in (12, 1, 2) else "spring" if month in (3, 4, 5)
-                  else "summer" if month in (6, 7, 8) else "autumn")
+        flags = {k: 0 for k in ["wx_thunderstorm", "wx_snow", "wx_rain",
+                                "wx_fog", "wx_freezing", "wx_haze_smoke"]}
+        vis, ceiling, precip = 16000.0, 22000.0, 0.0
+        if condition == "Typical for this airport and month":
+            flags = {k: float(wx.get(k, 0) or 0) for k in flags}
+            vis = float(wx.get("visibility_m") or 16000)
+            ceiling = float(wx.get("ceiling_m") or 22000)
+            precip = float(wx.get("precip_mm") or 0)
+        elif condition == "Rain":
+            flags["wx_rain"] = 1; vis, ceiling, precip = 8000.0, 3000.0, 2.5
+        elif condition == "Fog / low visibility":
+            flags["wx_fog"] = 1; vis, ceiling = 1200.0, 300.0
+        elif condition == "Snow":
+            flags["wx_snow"] = 1; vis, ceiling, precip = 2000.0, 800.0, 5.0
+        elif condition == "Thunderstorm":
+            flags["wx_thunderstorm"] = 1; flags["wx_rain"] = 1
+            vis, ceiling, precip = 4000.0, 1500.0, 8.0
+        elif condition == "Freezing precipitation":
+            flags["wx_freezing"] = 1; vis, ceiling, precip = 2500.0, 600.0, 3.0
 
-        row = pd.DataFrame([{
-            "airline_code": airline_code, "time_of_day": time_of_day, "season": season,
+        record = {
+            "airline_code": airline_code,
+            "time_of_day": ("night" if hour < 6 else "morning" if hour < 12
+                            else "afternoon" if hour < 18 else "evening"),
+            "season": ("winter" if month in (12, 1, 2) else "spring" if month in (3, 4, 5)
+                       else "summer" if month in (6, 7, 8) else "autumn"),
             "month": month, "day_of_week": dow, "sched_dep_hour": hour,
             "distance": distance, "sched_duration": max(int(distance / 7) + 30, 40),
             "is_weekend_int": 1 if dow in (6, 7) else 0,
-            "origin_delay_rate": rate(airports, "airport_code", origin, "delay_rate"),
-            "dest_delay_rate": rate(airports, "airport_code", dest, "delay_rate"),
-            "airline_delay_rate": rate(airlines, "airline_code", airline_code, "delay_rate"),
-            "route_delay_rate": (float(route_row.iloc[0]["delay_rate"]) / 100.0
-                                 if not route_row.empty else GLOBAL_RATE),
+            "origin_delay_rate":  lookup("rate_origin", {"origin": origin}, "origin_delay_rate", g),
+            "dest_delay_rate":    lookup("rate_destination", {"destination": dest}, "dest_delay_rate", g),
+            "airline_delay_rate": lookup("rate_airline", {"airline_code": airline_code}, "airline_delay_rate", g),
+            "route_delay_rate":   lookup("rate_route", {"route": f"{origin}-{dest}"}, "route_delay_rate", g),
+            "origin_hour_delay_rate": lookup("rate_origin_hour",
+                                             {"origin": origin, "sched_dep_hour": hour},
+                                             "origin_hour_delay_rate", g),
+            "airline_origin_delay_rate": lookup("rate_airline_origin",
+                                                {"airline_code": airline_code, "origin": origin},
+                                                "airline_origin_delay_rate", g),
+            "temp_c": float(temp),
+            "dewpoint_c": float(wx.get("dewpoint_c") or temp - 5),
+            "wind_speed": float(wind),
+            "visibility_m": vis, "ceiling_m": ceiling, "precip_mm": precip,
+            **flags,
             "weight": 1.0,
-        }])
+        }
 
-        sdf = spark.createDataFrame(row)
-        pred = model.transform(prep.transform(sdf)).select("probability", "prediction").first()
-        prob = float(pred["probability"][1])
+        sdf = spark.createDataFrame(pd.DataFrame([record]))
+        out = model.transform(prep.transform(sdf)) \
+                   .select(vector_to_array("probability").getItem(1).alias("p")).first()
+        prob = float(out["p"])
         spark.stop()
 
-    band, colour = (("HIGH", "🔴") if prob >= 0.60 else
-                    ("MEDIUM", "🟠") if prob >= 0.40 else ("LOW", "🟢"))
+    band, colour = (("HIGH", "🔴") if prob >= THRESHOLD + 0.15 else
+                    ("ELEVATED", "🟠") if prob >= THRESHOLD else ("LOW", "🟢"))
     st.markdown("---")
     a, b = st.columns([1, 2])
     a.metric("Delay probability", f"{prob*100:.1f}%")
-    a.markdown(f"### {colour} {band} RISK")
+    a.markdown(f"### {colour} {band}")
     with b:
         st.progress(min(prob, 1.0))
         st.caption(
-            f"The model estimates a **{prob*100:.1f}%** chance this flight arrives 15+ minutes "
-            f"late, against a network average of 18.6%. Bands: low <40%, medium 40–60%, high ≥60% "
-            "— thresholds chosen for interpretation, not tuned."
+            f"Estimated **{prob*100:.1f}%** chance of arriving 15+ minutes late, against a "
+            f"network average of {g*100:.1f}%. The model's decision threshold is "
+            f"**{THRESHOLD}**, chosen by sweeping for best F1 — flights above it are "
+            "predicted delayed."
         )
     st.info(
-        "**What this can and cannot know.** It uses only information available before "
-        "departure: airline, airports, schedule, distance, and historical rates. It cannot "
-        "see the weather that day, whether the inbound aircraft is already late (the single "
-        "largest cause of delay minutes), or air-traffic-control decisions. Treat it as a "
-        "historical risk profile, not a forecast."
+        "**What the model cannot see.** It uses only pre-departure information. It does not "
+        "know whether the inbound aircraft is already running late — the single largest cause "
+        "of delay minutes (39.8%) — nor same-day air-traffic-control decisions. Treat this as "
+        "a historical risk profile, not a forecast."
     )
 
-imp = db.load("ml_classification_results")
+# ---------------------------------------------------------------- importance
 st.markdown("---")
 st.subheader("What drives the prediction")
-import json
-imp_path = PROJECT_ROOT / "data" / "marts" / "ml_classification_results.json"
-if imp_path.exists():
-    payload = json.loads(imp_path.read_text())
-    fi = payload.get("feature_importances", {})
-    if fi:
-        fdf = pd.DataFrame({"feature": list(fi)[:12], "importance": list(fi.values())[:12]})
-        st.plotly_chart(charts.bar(fdf.sort_values("importance"), "importance", "feature",
-                                   "Random Forest feature importance", orientation="h"),
-                        width="stretch")
-        st.caption("Scheduled departure hour dominates: delay risk compounds through the day.")
+fi = payload.get("feature_importances", {})
+if fi:
+    fdf = pd.DataFrame({"feature": list(fi)[:14], "importance": list(fi.values())[:14]})
+    st.plotly_chart(charts.bar(fdf.sort_values("importance"), "importance", "feature",
+                               "Gradient-Boosted Trees — feature importance", orientation="h"),
+                    width="stretch")
+    share = payload.get("weather_importance_share")
+    if share:
+        st.caption(
+            f"Weather accounts for **{share*100:.1f}%** of total importance. The strongest "
+            "single feature is `origin_hour_delay_rate` — the airport-by-hour interaction — "
+            "confirming that congestion is hour-specific rather than a property of the airport."
+        )

@@ -4,22 +4,25 @@ from pathlib import Path
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils import charts, db
+from utils import charts, db, ui
 
 st.set_page_config(page_title="Overview", page_icon="📊", layout="wide")
-st.title("📊 Executive Overview")
+ui.setup('Executive Overview', '📊', 'Network performance across 2015')
 
 k = db.kpis()
 if not k:
     st.error("No data. Run the notebooks first.")
     st.stop()
 
-c = st.columns(5)
-c[0].metric("Total flights", f"{int(k['total_flights']):,}")
-c[1].metric("On-time", f"{k['on_time_pct']:.1f}%")
-c[2].metric("Delayed >15 min", f"{k['delay_rate']:.1f}%")
-c[3].metric("Avg dep delay", f"{k['avg_dep_delay']:.1f} min")
-c[4].metric("Cancelled", f"{k['cancellation_rate']:.2f}%")
+ui.kpis([
+    {"label": "Total flights", "value": f"{int(k['total_flights']):,}"},
+    {"label": "On time", "value": f"{k['on_time_pct']:.1f}%",
+     "sub": "arrived within 15 min", "tone": "good"},
+    {"label": "Delayed", "value": f"{k['delay_rate']:.1f}%", "sub": "15+ min late",
+     "tone": ui.tone_for_delay(k["delay_rate"])},
+    {"label": "Avg dep delay", "value": f"{k['avg_dep_delay']:.1f} min"},
+    {"label": "Cancelled", "value": f"{k['cancellation_rate']:.2f}%"},
+])
 
 st.markdown("---")
 monthly = db.trends("monthly")
@@ -49,7 +52,8 @@ if not air.empty:
 
 st.markdown("---")
 st.subheader("Airports")
-st.caption("Only airports with at least 10,000 flights are ranked — see the note on the home page.")
+ui.note("Only airports with <strong>10,000+ flights</strong> are ranked. "
+        "Below that, a delay rate is driven by noise rather than performance.")
 ap = db.ranked("airport_metrics").sort_values("delay_rate")
 if not ap.empty:
     left, right = st.columns(2)

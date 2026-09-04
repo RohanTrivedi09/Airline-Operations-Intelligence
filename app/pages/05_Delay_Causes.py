@@ -5,10 +5,10 @@ import plotly.express as px
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils import charts, db
+from utils import charts, db, ui
 
 st.set_page_config(page_title="Delay causes", page_icon="🔍", layout="wide")
-st.title("🔍 Delay Causes & Patterns")
+ui.setup('Delay Causes & Patterns', '🔍', 'What causes delays, and when')
 
 causes = db.load("delay_causes")
 if not causes.empty:

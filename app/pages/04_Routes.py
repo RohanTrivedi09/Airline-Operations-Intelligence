@@ -4,10 +4,10 @@ from pathlib import Path
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils import charts, db
+from utils import charts, db, ui
 
 st.set_page_config(page_title="Routes", page_icon="🛣️", layout="wide")
-st.title("🛣️ Route Intelligence")
+ui.setup('Route Intelligence', '🛣️', 'Reliability by origin→destination pair')
 
 routes = db.load("route_metrics")
 if routes.empty:
@@ -30,12 +30,15 @@ if match.empty:
     st.warning("No flights on that route in 2015.")
 else:
     r = match.iloc[0]
-    c = st.columns(5)
-    c[0].metric("Flights", f"{int(r['total_flights']):,}")
-    c[1].metric("Avg delay", f"{r['avg_delay']:.1f} min")
-    c[2].metric("Delay rate", f"{r['delay_rate']:.1f}%")
-    c[3].metric("Cancellations", f"{r['cancellation_rate']:.2f}%")
-    c[4].metric("Distance", f"{int(r['distance']):,} mi")
+    ui.kpis([
+        {"label": "Flights", "value": f"{int(r['total_flights']):,}",
+         "sub": f"{int(r.get('airlines_serving', 0))} airlines"},
+        {"label": "Avg delay", "value": f"{r['avg_delay']:.1f} min"},
+        {"label": "Delay rate", "value": f"{r['delay_rate']:.1f}%",
+         "tone": ui.tone_for_delay(r["delay_rate"])},
+        {"label": "Cancellations", "value": f"{r['cancellation_rate']:.2f}%"},
+        {"label": "Distance", "value": f"{int(r['distance']):,} mi"},
+    ])
     if r.get("meets_min_sample"):
         st.success(f"Reliability rank **{int(r['reliability_rank'])}** of {len(eligible):,} "
                    "ranked routes (1 = most reliable).")

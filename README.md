@@ -293,7 +293,7 @@ is under 2 MB.
 
 ```bash
 docker compose up -d                       # MongoDB serving layer
-.venv/bin/streamlit run app/app.py         # http://localhost:8501
+.venv/bin/streamlit run app/Home.py         # http://localhost:8501
 ```
 
 Six pages, all verified headlessly with `streamlit.testing.AppTest` — every page executes

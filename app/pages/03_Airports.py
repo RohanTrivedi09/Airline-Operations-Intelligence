@@ -5,10 +5,10 @@ import plotly.express as px
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils import charts, db
+from utils import charts, db, ui
 
 st.set_page_config(page_title="Airports", page_icon="🗺️", layout="wide")
-st.title("🗺️ Airport Intelligence")
+ui.setup('Airport Intelligence', '🗺️', 'Operational profiles, rankings and drill-down')
 
 ap = db.load("airport_metrics")
 if ap.empty:
@@ -24,7 +24,8 @@ mode = st.radio("Colour by", ["Operational cluster", "Delay rate"], horizontal=T
 if mode == "Operational cluster" and not clustered.empty:
     fig = px.scatter_map(
         clustered, lat="lat", lon="lon", color="cluster_label",
-        size="total_flights", size_max=28, zoom=2.6, hover_name="airport_name",
+        size="total_flights", size_max=26, hover_name="airport_name",
+        zoom=3.05, center=dict(lat=39.5, lon=-98.4),
         hover_data={"airport_code": True, "delay_rate": ":.1f", "total_flights": ":,",
                     "lat": False, "lon": False},
         color_discrete_map=charts.CLUSTER_COLOURS,
@@ -35,13 +36,26 @@ if mode == "Operational cluster" and not clustered.empty:
 else:
     fig = px.scatter_map(
         mapped, lat="lat", lon="lon", color="delay_rate", size="total_flights",
-        size_max=28, zoom=2.6, hover_name="airport_name",
+        size_max=26, hover_name="airport_name",
+        zoom=3.05, center=dict(lat=39.5, lon=-98.4),
         color_continuous_scale="RdYlGn_r",
         hover_data={"airport_code": True, "delay_rate": ":.1f", "total_flights": ":,",
                     "lat": False, "lon": False},
         title="Airports by delay rate")
 
-fig.update_layout(height=560, margin=dict(l=0, r=0, t=40, b=0), map_style="carto-positron")
+# Plotly centres on (0,0) when no centre is given, which puts a US map over Africa.
+# Centre and zoom on the continental US explicitly, and lay the legend across the top
+# so long cluster labels are not clipped by the map edge.
+fig.update_layout(
+    height=560, margin=dict(l=0, r=0, t=34, b=52),
+    map_style="carto-positron",
+    # Legend below the map: horizontal at the top collides with the chart title, and
+    # on the right the long cluster labels are clipped by the map edge.
+    legend=dict(orientation="h", yanchor="top", y=-0.02, xanchor="left", x=0,
+                font=dict(size=11), title_text=""),
+    font=dict(family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif",
+              size=12, color="#161A22"),
+    paper_bgcolor="#FFFFFF")
 st.plotly_chart(fig, width="stretch")
 
 missing = len(ap) - len(mapped)
@@ -74,13 +88,17 @@ st.markdown("---")
 st.subheader("Single airport")
 code = st.selectbox("Airport", sorted(ap["airport_code"]))
 row = ap[ap["airport_code"] == code].iloc[0]
-c = st.columns(5)
-c[0].metric("Flights", f"{int(row['total_flights']):,}")
-c[1].metric("Delay rate", f"{row['delay_rate']:.1f}%")
-c[2].metric("Avg dep delay", f"{row['avg_dep_delay']:.1f} min")
-c[3].metric("Cancellations", f"{row['cancellation_rate']:.2f}%")
-c[4].metric("Peak delay hour",
-            f"{int(row['peak_delay_hour']):02d}:00" if row.get("peak_delay_hour") == row.get("peak_delay_hour") else "n/a")
+peak = (f"{int(row['peak_delay_hour']):02d}:00"
+        if row.get("peak_delay_hour") == row.get("peak_delay_hour") else "n/a")
+ui.kpis([
+    {"label": "Flights", "value": f"{int(row['total_flights']):,}",
+     "sub": f"{int(row.get('airlines_served', 0))} airlines"},
+    {"label": "Delay rate", "value": f"{row['delay_rate']:.1f}%",
+     "tone": ui.tone_for_delay(row["delay_rate"])},
+    {"label": "Avg dep delay", "value": f"{row['avg_dep_delay']:.1f} min"},
+    {"label": "Cancellations", "value": f"{row['cancellation_rate']:.2f}%"},
+    {"label": "Peak delay hour", "value": peak, "sub": "worst hour by delay rate"},
+])
 if row.get("cluster_label"):
     st.info(f"**Operational profile:** {row['cluster_label']}")
 else:

@@ -4,10 +4,10 @@ from pathlib import Path
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils import charts, db
+from utils import charts, db, ui
 
 st.set_page_config(page_title="Airlines", page_icon="🛫", layout="wide")
-st.title("🛫 Airline Performance")
+ui.setup('Airline Performance', '🛫', 'Reliability by carrier, with sample sizes')
 
 air = db.load("airline_metrics")
 if air.empty:
