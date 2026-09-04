@@ -64,9 +64,9 @@ scripts/          smoke_test.py
 | 06 | `ml_classification` — LR + Random Forest, leakage-controlled | **Done, executed, verified** |
 | 07 | `ml_clustering` — K-Means airport profiles | **Done, executed, verified** |
 | 08 | `mongodb_push` — 10 collections, indexed | **Done, executed, verified** |
-| 09 | `streaming_demo` *(extension)* | — |
+| 09 | `streaming_demo` *(extension)* | Next |
 | 10 | `spark_concepts_doc` | — |
-| — | Streamlit dashboard | Next |
+| — | Streamlit dashboard — 6 pages | **Done, all pages executed and verified** |
 
 ## Key findings from notebook 01
 
@@ -287,3 +287,32 @@ Every dashboard query runs in **under 2 ms**:
 
 Note the container image is **1.13 GB** (`docker rmi mongo:7` to remove); the data itself
 is under 2 MB.
+
+## Dashboard
+
+```bash
+docker compose up -d                       # MongoDB serving layer
+.venv/bin/streamlit run app/app.py         # http://localhost:8501
+```
+
+Six pages, all verified headlessly with `streamlit.testing.AppTest` — every page executes
+with zero exceptions:
+
+| Page | Question it answers |
+|---|---|
+| Overview | Network performance and how it moved through the year |
+| Airlines | Which carriers are reliable, with sample sizes and a two-airline comparison |
+| Airports | Map coloured by K-Means cluster or delay rate, rankings, per-airport drill-down |
+| Routes | Origin→destination lookup, most/least reliable, volume vs reliability |
+| Delay causes | Cause breakdown, hour/day/season patterns, delay duration distribution |
+| Prediction | Delay risk for a hypothetical flight, from the saved Random Forest |
+
+**The dashboard performs no aggregation.** It reads precomputed documents — a few hundred
+KB instead of 5.8M rows — which is why every page is instant.
+
+**It also survives MongoDB being down.** `app/utils/db.py` falls back to the Parquet marts
+and the home page states which source is live. Verified by stopping the container mid-test:
+all pages still rendered.
+
+Prediction path verified end to end: LAX→JFK, July, 17:00 departure → **54.3% delay
+probability, MEDIUM risk**, against the 18.6% network baseline.

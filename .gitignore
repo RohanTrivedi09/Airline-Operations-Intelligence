@@ -22,3 +22,9 @@ venv/
 # OS / editor
 .DS_Store
 .vscode/
+
+# Spark local artefacts
+spark-warehouse/
+notebooks/spark-warehouse/
+notebooks/artifacts/
+artifacts/
