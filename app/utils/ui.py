@@ -252,17 +252,47 @@ _MINUTE_COLUMNS = {
 _COUNT_SUFFIX = ("_flights", "_minutes", "flights", "delayed", "_count")
 # Percentage columns whose names carry no suffix to key off.
 _PCT_COLUMNS = {"percentage"}
+# Columns stored as a 0-1 fraction rather than 0-100. Streamlit's "percent" format
+# scales by 100, so these route there and the 0-100 columns must not -- `cancellation_rate`
+# already holds 0.22 meaning 0.22%, and scaling it would report 22%.
+_RATIO_COLUMNS = {"peak_hour_congestion_ratio", "peak_congestion"}
 _LABELS = {
+    # identity
     "airline_code": "Code", "airline_name": "Airline", "airport_code": "Code",
-    "airport_name": "Airport", "total_flights": "Flights", "on_time_pct": "On time",
-    "delay_rate": "Delay rate", "delay_rate_pct": "Delay rate",
-    "cancellation_rate": "Cancelled", "avg_dep_delay": "Avg dep delay",
-    "avg_arr_delay": "Avg arr delay", "median_delay": "Median delay",
-    "routes_served": "Routes", "roc_auc": "ROC-AUC", "f1": "F1",
-    "total_minutes": "Total minutes", "origin": "From", "destination": "To",
-    "avg_flights": "Avg flights", "airlines_served": "Airlines",
+    "airport_name": "Airport", "route": "Route", "origin": "From", "destination": "To",
+    "origin_city": "Origin city", "dest_city": "Destination city",
+    "cluster_label": "Operational profile", "cause": "Cause",
+    "delay_bucket": "Arrival outcome",
+    # counts
+    "total_flights": "Flights", "completed_flights": "Completed",
+    "count": "Flights", "avg_flights": "Avg flights",
+    "routes_served": "Routes", "airlines_served": "Airlines",
+    "airlines_serving": "Airlines", "destinations_served": "Destinations",
+    "airports": "Airports",
+    # In the cluster table this is an AVERAGE per airport sitting beside a COUNT of
+    # airports. Two identical-looking headers for two different kinds of number.
+    "airlines": "Avg airlines",
+    # rates, already stored 0-100
+    "on_time_pct": "On time %", "delay_rate": "Delay rate",
+    "delay_rate_pct": "Delay rate", "cancellation_rate": "Cancelled %",
+    "diversion_rate": "Diverted %", "percentage": "Share of flights",
     "pct_of_delay_minutes": "Share of delay minutes",
-    "peak_hour_congestion": "Peak congestion", "peak_delay_hour": "Peak delay hour",
+    # durations
+    "avg_dep_delay": "Avg dep delay", "avg_arr_delay": "Avg arr delay",
+    "median_delay": "Median delay", "total_minutes": "Total minutes",
+    "avg_minutes_per_late_flight": "Avg min / late flight",
+    # `avg_delay` IS arrival delay, and on the airports table it sits directly beside
+    # `avg_dep_delay`. Left as "Avg delay" the pair cannot be told apart.
+    "avg_delay": "Avg arr delay",
+    # "Peak congestion: 0.106" states a ratio of nothing. Name what it is a share of.
+    # Note the key: the mart column is `..._ratio`, and the earlier map omitted the
+    # suffix, so this label never applied and the raw column name was shown instead.
+    "peak_hour_congestion_ratio": "Busiest hour share",
+    "peak_congestion": "Busiest hour share",
+    "peak_delay_hour": "Peak delay hour", "distance": "Distance",
+    "avg_distance": "Avg distance",
+    # model
+    "roc_auc": "ROC-AUC", "f1": "F1", "silhouette": "Silhouette", "wcss": "WCSS",
 }
 
 
@@ -288,7 +318,9 @@ def table(df, *, columns=None, height=None, hide_index=True, overrides=None):
     for col in frame.columns:
         if col in cfg:
             continue
-        if col in _BAR_COLUMNS:
+        if col in _RATIO_COLUMNS:
+            cfg[col] = st.column_config.NumberColumn(_label(col), format="percent")
+        elif col in _BAR_COLUMNS:
             cfg[col] = st.column_config.ProgressColumn(
                 _label(col), format="%.2f%%", min_value=0, max_value=100)
         elif col.endswith(_PCT_SUFFIX) or col.startswith("pct_") or col in _PCT_COLUMNS:

@@ -14,9 +14,12 @@ if air.empty:
     st.error("No airline data.")
     st.stop()
 
+# Show the same names the table headers use, not the mart's column names. A control
+# reading "delay_rate" asks the viewer to know the schema.
 metric = st.selectbox("Rank by",
                       ["delay_rate", "on_time_pct", "avg_arr_delay",
-                       "avg_dep_delay", "cancellation_rate", "total_flights"])
+                       "avg_dep_delay", "cancellation_rate", "total_flights"],
+                      format_func=ui.label)
 ascending = metric in ("delay_rate", "avg_arr_delay", "avg_dep_delay", "cancellation_rate")
 ranked = air.sort_values(metric, ascending=ascending)
 

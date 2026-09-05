@@ -75,7 +75,27 @@ with tab_map:
         ui.section("Operational profiles",
                    "K-Means groups airports by how they operate — volume, delay rate, "
                    "cancellations, peak-hour congestion and airlines served.")
-        ui.table(prof.sort_values("delay_rate"))
+        # k, silhouette and WCSS describe the CLUSTERING, not a cluster -- they repeat
+        # identically on every row. Printing them per-row implies they vary, and pushes
+        # the table into a horizontal scroll. They belong in one line below it.
+        profile_cols = [c for c in ["cluster_label", "airports", "avg_flights",
+                                    "avg_dep_delay", "delay_rate", "cancellation_rate",
+                                    "peak_congestion", "airlines"] if c in prof.columns]
+        ui.table(prof.sort_values("delay_rate"), columns=profile_cols)
+
+        row0 = prof.iloc[0]
+        bits = []
+        if "k" in prof.columns:
+            bits.append(f"<strong>k = {int(row0['k'])}</strong>")
+        if "silhouette" in prof.columns:
+            bits.append(f"silhouette <strong>{row0['silhouette']:.4f}</strong>")
+        if "wcss" in prof.columns:
+            bits.append(f"WCSS <strong>{row0['wcss']:.2f}</strong>")
+        if bits:
+            st.caption("Model: " + " · ".join(b.replace("<strong>", "**")
+                                               .replace("</strong>", "**") for b in bits)
+                       + " — properties of the clustering as a whole, not of any one row.")
+
         ui.note(
             "<strong>Scaling matters here.</strong> <code>total_flights</code> spans 50 to "
             "300,000 while rates run 0–100, so without standardisation K-Means would simply "
