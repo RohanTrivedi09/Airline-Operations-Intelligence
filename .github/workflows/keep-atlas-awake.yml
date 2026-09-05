@@ -52,7 +52,24 @@ jobs:
 
           client = MongoClient(uri, serverSelectionTimeoutMS=20000,
                                tlsCAFile=certifi.where())
-          client.admin.command("ping")
+          try:
+              client.admin.command("ping")
+          except Exception as exc:
+              # A bare ServerSelectionTimeoutError says nothing useful. In practice it
+              # is almost always the IP access list: Atlas accepts the TCP connection
+              # from a non-allowlisted address and then refuses the handshake, so it
+              # looks like a network timeout rather than an authorisation failure.
+              # GitHub runners have dynamic egress IPs, so only 0.0.0.0/0 can work.
+              sys.exit(
+                  f"Could not reach Atlas: {type(exc).__name__}\n"
+                  "Most likely the IP access list. In Atlas:\n"
+                  "  Security > Database & Network Access > IP Access List\n"
+                  "  and confirm 0.0.0.0/0 is present and ACTIVE, with the\n"
+                  "  'temporary entry' toggle OFF -- a temporary rule silently\n"
+                  "  expires and everything starts timing out.\n"
+                  "Also check the cluster is not paused (Atlas pauses free\n"
+                  "clusters after 30 days idle)."
+              )
           db = client[os.environ["MONGO_DB"]]
           names = db.list_collection_names()
           docs = sum(db[c].count_documents({}) for c in names)

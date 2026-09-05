@@ -26,6 +26,12 @@ _CSS = """
 <style>
   /* ---------- shell ---------- */
   #MainMenu, footer, header [data-testid="stToolbar"] {visibility: hidden;}
+  /* The button that reopens a collapsed sidebar lives INSIDE that toolbar, and
+     `visibility` inherits -- hiding the toolbar hid the only way back to the
+     navigation, stranding anyone who collapsed it until they reloaded the page.
+     Put it back explicitly. */
+  [data-testid="stExpandSidebarButton"],
+  [data-testid="stExpandSidebarButton"] * {visibility: visible !important;}
   .block-container {padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1400px;}
 
   /* ---------- typography ---------- */
