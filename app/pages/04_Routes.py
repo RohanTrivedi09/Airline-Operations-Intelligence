@@ -6,8 +6,8 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import charts, db, ui
 
-st.set_page_config(page_title="Routes", page_icon="🛣️", layout="wide")
-ui.setup('Route Intelligence', '🛣️', 'Reliability by origin→destination pair')
+st.set_page_config(page_title="Routes", page_icon=":material/route:", layout="wide")
+ui.setup('Route Intelligence', 'Reliability by origin→destination pair')
 
 routes = db.load("route_metrics")
 if routes.empty:
@@ -46,7 +46,7 @@ else:
         st.warning(f"Only {int(r['total_flights']):,} flights — below the 1,000-flight "
                    "threshold, so this route is not ranked. Treat its rates as indicative.")
 
-st.markdown("---")
+st.divider()
 left, right = st.columns(2)
 cols = ["route", "total_flights", "avg_delay", "delay_rate", "cancellation_rate"]
 with left:
@@ -56,7 +56,7 @@ with right:
     st.subheader("Least reliable")
     ui.table(eligible.sort_values("delay_rate", ascending=False).head(15), columns=cols)
 
-st.markdown("---")
+st.divider()
 ui.section("Volume vs reliability",
            "Each point is a route. Busy routes cluster toward the network average; extreme "
            "delay rates occur mostly on thin routes, which is exactly why the ranking "
@@ -67,6 +67,6 @@ st.plotly_chart(
                    hover_name="route", color_continuous_scale="RdYlGn_r"),
     width="stretch")
 
-st.markdown("---")
+st.divider()
 ui.section("Busiest routes", "By total flights flown.")
 ui.table(routes.sort_values("total_flights", ascending=False).head(20), columns=cols)

@@ -7,8 +7,8 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import charts, db, ui
 
-st.set_page_config(page_title="Airports", page_icon="🗺️", layout="wide")
-ui.setup('Airport Intelligence', '🗺️', 'Operational profiles, rankings and drill-down')
+st.set_page_config(page_title="Airports", page_icon=":material/location_on:", layout="wide")
+ui.setup('Airport Intelligence', 'Operational profiles, rankings and drill-down')
 
 ap = db.load("airport_metrics")
 if ap.empty:
@@ -23,6 +23,9 @@ tab_map, tab_rank, tab_one = st.tabs(
 
 # ------------------------------------------------------------------ map
 with tab_map:
+    # The map heading lives in page type, not inside the figure. A Plotly title sits in
+    # the same band as the modebar and collides with it once the viewport narrows.
+    ui.section("Airport map", "Circle size is flight volume.")
     mode = st.radio("Colour by", ["Operational cluster", "Delay rate"], horizontal=True)
 
     if mode == "Operational cluster" and not clustered.empty:
@@ -32,8 +35,7 @@ with tab_map:
             zoom=3.05, center=dict(lat=39.5, lon=-98.4),
             hover_data={"airport_code": True, "delay_rate": ":.1f", "total_flights": ":,",
                         "lat": False, "lon": False},
-            color_discrete_map=charts.CLUSTER_COLOURS,
-            title="Airports by operational profile (K-Means, notebook 07)")
+            color_discrete_map=charts.CLUSTER_COLOURS)
         caption = ("Only airports with 10,000+ flights are clustered. Smaller airports keep "
                    "all their metrics but are not assigned a profile, because a few hundred "
                    "flights cannot support a reliable one.")
@@ -44,15 +46,14 @@ with tab_map:
             zoom=3.05, center=dict(lat=39.5, lon=-98.4),
             color_continuous_scale="RdYlGn_r",
             hover_data={"airport_code": True, "delay_rate": ":.1f", "total_flights": ":,",
-                        "lat": False, "lon": False},
-            title="Airports by delay rate")
+                        "lat": False, "lon": False})
         caption = "Circle size is flight volume; colour is delay rate."
 
     # Plotly centres on (0,0) when no centre is given, which puts a US map over Africa.
     # `zoom` and `center` must be passed to px.scatter_map directly -- setting them via
     # update_layout(map=...) is silently ignored. This bug passed the whole AppTest suite.
     fig.update_layout(
-        height=560, margin=dict(l=0, r=0, t=34, b=52),
+        height=560, margin=dict(l=0, r=0, t=8, b=52),
         map_style="carto-positron",
         # Legend below the map: horizontal at the top collides with the chart title, and
         # on the right the long cluster labels are clipped by the map edge.
@@ -80,6 +81,9 @@ with tab_map:
             "300,000 while rates run 0–100, so without standardisation K-Means would simply "
             "sort airports by size and rediscover nothing."
         )
+    else:
+        st.plotly_chart(charts.empty("No cluster profiles — run notebook 07."),
+                        width="stretch")
 
 # ------------------------------------------------------------------ rankings
 with tab_rank:

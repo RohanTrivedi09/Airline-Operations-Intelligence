@@ -6,8 +6,8 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import charts, db, ui
 
-st.set_page_config(page_title="Airlines", page_icon="🛫", layout="wide")
-ui.setup('Airline Performance', '🛫', 'Reliability by carrier, with sample sizes')
+st.set_page_config(page_title="Airlines", page_icon=":material/flight:", layout="wide")
+ui.setup('Airline Performance', 'Reliability by carrier, with sample sizes')
 
 air = db.load("airline_metrics")
 if air.empty:
@@ -31,7 +31,7 @@ ui.table(ranked, columns=["airline_code", "airline_name", "total_flights", "on_t
                           "avg_dep_delay", "avg_arr_delay", "median_delay", "delay_rate",
                           "cancellation_rate", "routes_served"])
 
-st.markdown("---")
+st.divider()
 ui.section("Delay rate vs cancellation rate",
            "Bubble size is flight volume. An airline can be punctual but cancel often — "
            "these are different failure modes and worth separating.")
@@ -41,7 +41,7 @@ st.plotly_chart(
                    size="total_flights", color="on_time_pct", hover_name="airline_name"),
     width="stretch")
 
-st.markdown("---")
+st.divider()
 ui.section("Compare two airlines", "Side by side on the same measures.")
 c1, c2 = st.columns(2)
 names = sorted(air["airline_name"])

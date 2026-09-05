@@ -234,3 +234,35 @@ represent. This dashboard already refuses to rank on small samples; exaggerating
 differences visually would undo that in the graphics what the statistics were careful about.
 For the same reason `cancellation_rate` (typically 1–3%) gets no bar at all — an invisible
 sliver is worse than a formatted number.
+
+---
+
+## D8 — No emoji in the interface
+
+Every page originally opened with an emoji in its `<h1>` and carried one as its
+`page_icon`; the prediction result used coloured circles for its risk band.
+
+**Removed, for three reasons.**
+
+1. **They render inconsistently.** Emoji are drawn from the host platform's font — Apple
+   Color Emoji, Segoe UI Emoji, Noto — so size, baseline and weight all shift between the
+   machine it was built on and the machine it is marked on. A heading that is typeset
+   cannot break that way.
+2. **Colour alone was carrying meaning.** The risk band was a red, orange or green circle.
+   Anyone who cannot separate those hues got no signal at all. It is now
+   `st.badge` with both a **word** ("High risk" / "Elevated risk" / "Low risk") and an
+   icon, so the meaning survives without the colour.
+3. **They read as decoration.** A crystal ball above "Delay Risk Prediction" adds nothing
+   the words do not already say.
+
+**Kept:** Material icons in the sidebar navigation, where a glyph genuinely aids scanning
+a list, and as `page_icon` for browser-tab identification. Both use Streamlit's
+`:material/...:` syntax, which renders from a single consistent icon font rather than the
+host emoji set.
+
+**A related correctness fix found while doing this.** `st.metric` colours its delta green
+for a positive number by default. That is right for ROC-AUC, where higher is better, and
+wrong for delay probability, where higher is worse — the same "+22.1 pp vs network" was
+rendering green as though being 22 points worse than the network average were good news.
+The delay-probability metric now uses `delta_color="inverse"`. The colour has to follow
+the meaning of the quantity, not the sign of the number.

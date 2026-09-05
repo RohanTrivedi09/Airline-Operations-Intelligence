@@ -13,11 +13,11 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-st.set_page_config(page_title="Live monitor", page_icon="📡", layout="wide")
+st.set_page_config(page_title="Live monitor", page_icon=":material/sensors:", layout="wide")
 
 from utils import charts, db, ui  # noqa: E402
 
-ui.setup("Live Operations Monitor", "📡",
+ui.setup("Live Operations Monitor",
          "Spark Structured Streaming · rolling metrics, updated per micro-batch")
 
 
@@ -136,6 +136,9 @@ if not airports.empty:
         "The alert threshold needs a minimum event count for the same reason the batch "
         "rankings do: an airport with three streamed flights can show 100% delayed."
     )
+else:
+    st.plotly_chart(charts.empty("No airport activity streamed yet."),
+                    width="stretch")
 
 ui.section("Recent events", "The tail of the most recent micro-batch.")
 recent = live("live_recent")
@@ -143,6 +146,9 @@ if not recent.empty:
     cols = [c for c in ["airline_code", "origin", "destination", "sched_dep_hour",
                         "dep_delay", "arr_delay", "is_delayed"] if c in recent.columns]
     ui.table(recent, columns=cols)
+else:
+    st.plotly_chart(charts.empty("No events in the latest micro-batch."),
+                    width="stretch")
 
 if auto:
     import time

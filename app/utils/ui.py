@@ -61,6 +61,11 @@ _CSS = """
   section[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"]:hover {
       background: rgba(15,98,254,.08);
   }
+  .brand {font-weight: 660; font-size: 1rem; letter-spacing: -0.015em; line-height: 1.15;}
+  .brand-sub {
+      font-size: .71rem; color: %(muted)s; letter-spacing: .02em;
+      margin: .1rem 0 .35rem;
+  }
   .nav-foot {
       margin-top: 1.6rem; padding-top: .8rem; border-top: 1px solid %(line)s;
       font-size: .72rem; color: %(muted)s; line-height: 1.45;
@@ -109,6 +114,27 @@ _CSS = """
   }
   [data-testid="stMetricValue"] {font-size: 1.4rem; font-weight: 640;}
   hr {margin: 1.6rem 0; border-color: %(line)s;}
+
+  /* ---------- narrow viewports ---------- */
+  @media (max-width: 640px) {
+      .block-container {padding-top: 1.2rem; padding-left: .8rem; padding-right: .8rem;}
+      h1 {font-size: 1.5rem !important;}
+      h2 {font-size: 1.1rem !important;}
+
+      /* Plotly keeps its modebar permanently visible on touch devices, where on a
+         desktop it only appears on hover. Left-anchored chart titles then run
+         underneath it. Hide it here: pan and zoom still work by touch. */
+      .modebar {display: none !important;}
+
+      /* Let a long tab strip scroll instead of wrapping into stacked rows. */
+      [data-testid="stTabs"] [role="tablist"] {
+          overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none;
+      }
+      [data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar {display: none;}
+
+      .kpi .value {font-size: 1.3rem;}
+      .sec .t {font-size: 1rem;}
+  }
 </style>
 """ % PALETTE
 
@@ -136,10 +162,9 @@ def sidebar_nav() -> None:
     """
     with st.sidebar:
         st.markdown(
-            "<div style='font-weight:680;font-size:.95rem;letter-spacing:-.01em'>"
-            "&#9992;&#65039; Airline Ops Intelligence</div>"
-            "<div style='font-size:.72rem;color:#5A6472;margin-bottom:.2rem'>"
-            "US domestic flights, 2015</div>", unsafe_allow_html=True)
+            "<div class='brand'>Airline Operations</div>"
+            "<div class='brand-sub'>Intelligence &middot; US domestic 2015</div>",
+            unsafe_allow_html=True)
         seen = None
         for group, page, icon, label in _NAV:
             if group != seen:
@@ -159,14 +184,16 @@ def sidebar_nav() -> None:
             unsafe_allow_html=True)
 
 
-def setup(title: str, icon: str, subtitle: str = "") -> None:
+def setup(title: str, subtitle: str = "") -> None:
     """Apply theme CSS, render the sidebar nav and the page title.
 
-    Call once, first thing on a page.
+    Call once, first thing on a page. Deliberately takes no icon: emoji in a page
+    heading read as decoration and vary in size and alignment across platforms.
+    Icons belong in the nav, where they aid scanning; a heading should be type.
     """
     st.markdown(_CSS, unsafe_allow_html=True)
     sidebar_nav()
-    st.markdown(f"# {icon} {title}")
+    st.markdown(f"# {title}")
     if subtitle:
         st.markdown(
             f"<div style='color:{PALETTE['muted']};font-size:.9rem;margin:-.2rem 0 1.1rem'>"

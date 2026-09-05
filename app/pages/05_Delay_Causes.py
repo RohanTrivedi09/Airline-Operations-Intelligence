@@ -7,8 +7,8 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import charts, db, ui
 
-st.set_page_config(page_title="Delay causes", page_icon="🔍", layout="wide")
-ui.setup('Delay Causes & Patterns', '🔍', 'What causes delays, and when')
+st.set_page_config(page_title="Delay causes", page_icon=":material/schedule:", layout="wide")
+ui.setup('Delay Causes & Patterns', 'What causes delays, and when')
 
 # Three separate questions -- what causes delay, when it happens, how long it lasts.
 # As one scroll they read as an undifferentiated wall; as tabs each keeps its own framing.

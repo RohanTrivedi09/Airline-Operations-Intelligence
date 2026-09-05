@@ -11,11 +11,11 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 st.set_page_config(page_title="Airline Operations Intelligence",
-                   page_icon="✈️", layout="wide")
+                   page_icon=":material/flight_takeoff:", layout="wide")
 
 from utils import db, ui  # noqa: E402
 
-ui.setup("Airline Operations Intelligence", "✈️",
+ui.setup("Airline Operations Intelligence",
          "US domestic flights, 2015 · 5,819,078 records · Big Data Analytics project")
 
 source = db.source_name()

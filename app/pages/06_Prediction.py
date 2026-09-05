@@ -18,8 +18,8 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import charts, db, ui
 
-st.set_page_config(page_title="Prediction", page_icon="🔮", layout="wide")
-ui.setup('Delay Risk Prediction', '🔮', 'Model performance and what-if scoring')
+st.set_page_config(page_title="Prediction", page_icon=":material/model_training:", layout="wide")
+ui.setup('Delay Risk Prediction', 'Model performance and what-if scoring')
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 MODELS = PROJECT_ROOT / "data" / "models"
@@ -91,7 +91,7 @@ if META:
         "matters; showing both numbers is how you can check that claim rather than take it."
     )
 
-st.markdown("---")
+st.divider()
 st.subheader("Estimate risk for a flight")
 
 airlines = db.load("airline_metrics")
@@ -218,29 +218,44 @@ if st.button("Predict delay risk", type="primary"):
             X[c] = pd.Categorical(frame[c], categories=META["category_levels"][c])
         prob = float(MODEL.predict_proba(X)[0, 1])
 
-    band, colour = (("HIGH", "🔴") if prob >= THRESHOLD + 0.15 else
-                    ("ELEVATED", "🟠") if prob >= THRESHOLD else ("LOW", "🟢"))
-    st.markdown("---")
-    a, b = st.columns([1, 2])
-    a.metric("Delay probability", f"{prob*100:.1f}%")
-    a.markdown(f"### {colour} {band}")
-    with b:
-        st.progress(min(prob, 1.0))
-        st.caption(
-            f"Estimated **{prob*100:.1f}%** chance of arriving 15+ minutes late, against a "
-            f"network average of {g*100:.1f}%. The model's decision threshold is "
-            f"**{THRESHOLD}**, chosen by sweeping for best F1 — flights above it are "
-            "predicted delayed."
-        )
+    # Risk band as a native badge rather than a coloured circle: the colour is
+    # carried by the badge, and the word is carried by the label, so the meaning
+    # survives for anyone who cannot distinguish the colours.
+    if prob >= THRESHOLD + 0.15:
+        band, tone, mark = "High risk", "red", ":material/trending_up:"
+    elif prob >= THRESHOLD:
+        band, tone, mark = "Elevated risk", "orange", ":material/warning:"
+    else:
+        band, tone, mark = "Low risk", "green", ":material/check_circle:"
+
+    st.divider()
+    with st.container(border=True):
+        a, b = st.columns([1, 2])
+        with a:
+            # `inverse` because a HIGHER delay probability is worse. This is the
+            # opposite of the ROC-AUC metrics above, where higher is better -- the
+            # colour has to follow the meaning of the quantity, not the sign.
+            st.metric("Delay probability", f"{prob*100:.1f}%",
+                      f"{(prob - g) * 100:+.1f} pp vs network", delta_color="inverse")
+            st.badge(band, color=tone, icon=mark)
+        with b:
+            st.progress(min(prob, 1.0))
+            st.caption(
+                f"Estimated **{prob*100:.1f}%** chance of arriving 15+ minutes late, against "
+                f"a network average of {g*100:.1f}%. The decision threshold is "
+                f"**{THRESHOLD}**, chosen by sweeping for best F1 — flights above it are "
+                "predicted delayed."
+            )
     st.info(
         "**What the model cannot see.** It uses only pre-departure information. It does not "
         "know whether the inbound aircraft is already running late — the single largest cause "
-        "of delay minutes (39.8%) — nor same-day air-traffic-control decisions. Treat this as "
-        "a historical risk profile, not a forecast."
+        "of delay minutes (39.8%) — nor same-day air-traffic-control decisions. Notebook 12 "
+        "puts a number on that blindness: given the inbound's actual delay, ROC-AUC rises "
+        "from 0.71 to 0.83. Treat this as a historical risk profile, not a forecast."
     )
 
 # ---------------------------------------------------------------- importance
-st.markdown("---")
+st.divider()
 st.subheader("What drives the prediction")
 fi = payload.get("feature_importances", {})
 if fi:

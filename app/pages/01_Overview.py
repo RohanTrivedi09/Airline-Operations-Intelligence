@@ -6,8 +6,8 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import charts, db, ui
 
-st.set_page_config(page_title="Overview", page_icon="📊", layout="wide")
-ui.setup('Executive Overview', '📊', 'Network performance across 2015')
+st.set_page_config(page_title="Overview", page_icon=":material/insights:", layout="wide")
+ui.setup('Executive Overview', 'Network performance across 2015')
 
 k = db.kpis()
 if not k:
@@ -24,7 +24,7 @@ ui.kpis([
     {"label": "Cancelled", "value": f"{k['cancellation_rate']:.2f}%"},
 ])
 
-st.markdown("---")
+st.divider()
 monthly = db.trends("monthly")
 if not monthly.empty:
     left, right = st.columns(2)
@@ -35,8 +35,11 @@ if not monthly.empty:
         st.plotly_chart(charts.line(monthly, "period", "avg_delay",
                                     "Average arrival delay by month (min)"),
                         width="stretch")
+else:
+    st.plotly_chart(charts.empty("No monthly trend data — run notebook 05."),
+                    width="stretch")
 
-st.markdown("---")
+st.divider()
 ui.section("Airlines", "Ranked by delay rate, with the flight count behind each figure.")
 air = db.load("airline_metrics").sort_values("delay_rate")
 if not air.empty:
@@ -49,8 +52,11 @@ if not air.empty:
         st.markdown("**Least reliable**")
         ui.table(air.tail(5).iloc[::-1], columns=["airline_name", "total_flights",
                                                  "on_time_pct", "delay_rate"])
+else:
+    st.plotly_chart(charts.empty("No airline data — run notebook 05."),
+                    width="stretch")
 
-st.markdown("---")
+st.divider()
 ui.section("Airports", "Best and worst performers among airports that clear the threshold.")
 ui.note("Only airports with <strong>10,000+ flights</strong> are ranked. "
         "Below that, a delay rate is driven by noise rather than performance.")
@@ -64,8 +70,11 @@ if not ap.empty:
     with right:
         st.markdown("**Least reliable**")
         ui.table(ap.tail(5).iloc[::-1], columns=cols)
+else:
+    st.plotly_chart(charts.empty("No airport data — run notebooks 05 and 07."),
+                    width="stretch")
 
-st.markdown("---")
+st.divider()
 dist = db.load("delay_distribution")
 if not dist.empty:
     order = ["early", "on_time", "15-30 min", "30-60 min", "1-2 hours", "2+ hours"]
@@ -74,4 +83,7 @@ if not dist.empty:
         [b for b in order if b in set(dist["delay_bucket"])])
     st.plotly_chart(charts.bar(dist.sort_values("delay_bucket"), "delay_bucket", "percentage",
                                "Distribution of arrival outcomes (% of completed flights)"),
+                    width="stretch")
+else:
+    st.plotly_chart(charts.empty("No delay-distribution data — run notebook 05."),
                     width="stretch")
