@@ -16,16 +16,19 @@ Dataset/flights.csv   565 MB   5,819,079 rows
 data/raw/*.parquet    137 MB   partitioned by month
    ↓  notebook 02 — 11 cleaning rules, row-count contract
 data/curated/*.parquet 201 MB  5,819,078 rows × 49 columns
-   ↓  notebooks 05–07 — aggregations, classification, clustering
-data/marts/*.parquet  276 KB   6,076 documents
-   ↓  notebook 08 — push + index
-MongoDB               1.76 MB  10 collections
+   ↓  notebook 11 — join NOAA ISD hourly weather (424 MB raw)
+flights_weather.parquet        5,819,078 rows × 61 columns
+   ↓  notebooks 05–07, 12 — aggregations, classification, clustering, rotation
+data/marts/*.parquet           dashboard-ready documents
+   ↓  notebook 08 — push + index (one collection per mart, auto-discovered)
+MongoDB
    ↓
-Streamlit dashboard   6 pages, all queries < 2 ms
+Streamlit dashboard   7 pages, all queries < 2 ms
 ```
 
-**Environment:** Java 21.0.2, Python 3.12.1, PySpark 4.0.0, `local[6]`, 3 GB driver, on an
-8 GB / 8-core machine. Everything runs locally; no cloud services required.
+**Environment:** Java 21.0.2, Python 3.12.1, PySpark 4.0.0, `local[6]`, 3 GB driver
+(5 GB for the ML notebooks), on an 8 GB / 8-core machine. Everything runs locally; no cloud
+services required.
 
 ---
 
@@ -39,7 +42,7 @@ Streamlit dashboard   6 pages, all queries < 2 ms
 | **Variety** | Structured CSV (flights, airlines, airports), columnar Parquet, semi-structured BSON documents in MongoDB, JSON model artefacts |
 | **Velocity** | Notebook 09 replays 16,989 flights through Spark Structured Streaming in 6 micro-batches, with state accumulating across batches |
 | **Veracity** | The core finding of notebook 01: **486,165 flights (8.4%) carry DOT numeric airport codes instead of IATA**, and a naive inner join deletes them silently. Plus 105,071 structural nulls and 1 duplicate business key |
-| **Value** | Delay causes quantified (late aircraft 39.8% of delay minutes), airports grouped into 4 operational profiles, delay risk predicted at ROC-AUC 0.663 |
+| **Value** | Delay causes quantified (late aircraft 39.8% of delay minutes), airports grouped into 4 operational profiles, delay risk predicted at ROC-AUC 0.7134 (0.6580 on a temporal split) |
 
 ### Veracity in detail — the defect that mattered most
 
@@ -180,34 +183,99 @@ with the pre-loss answer — computational redundancy rather than storage redund
 
 ### Classification — delay prediction (notebook 06)
 
-Target: arrival delay ≥ 15 minutes. Test set 1,143,441 rows.
+Target: arrival delay ≥ 15 minutes. Train 4,571,843 / test 1,142,165, positive rate 18.62%.
 
-| Metric | Logistic Regression | Random Forest | Baseline |
-|---|---|---|---|
-| Accuracy | 0.6005 | 0.6098 | **0.8139** |
-| Precision | 0.2608 | 0.2678 | — |
-| Recall | 0.6248 | **0.6324** | — |
-| F1 | 0.3680 | **0.3763** | — |
-| ROC-AUC | 0.6501 | **0.6626** | — |
+The notebook is structured as an **ablation study** rather than a model bake-off: one
+change at a time, every step evaluated on the same held-out split, so each gain has a named
+cause. Steps that gained nothing stay in the table.
 
-**Accuracy below baseline is the intended trade, not a failure.** Class weighting (4.373×)
-sacrifices accuracy to catch delays: the forest identifies **134,596 of 212,844 delayed
-flights (63%)**, where an unweighted model scoring 81.4% would catch almost none.
+| Step | ROC-AUC | F1 | Δ AUC | Train time |
+|---|---|---|---|---|
+| 0. Logistic Regression | 0.6503 | 0.3678 | — | 25s |
+| 1. Random Forest | 0.6626 | 0.3765 | +0.0123 | 205s |
+| 2. + tuned threshold | 0.6626 | 0.3765 | **+0.0000** | 171s |
+| 3. + weather features | 0.6771 | 0.3849 | +0.0145 | 163s |
+| 4. + interaction features | 0.6811 | 0.3874 | +0.0040 | 147s |
+| 5. Gradient-Boosted Trees | 0.6976 | 0.4008 | +0.0165 | 386s |
+| **6. GBT, tuned** | **0.7134** | **0.4165** | +0.0158 | 1041s |
+| 7. *Temporal split* | *0.6580* | *0.3389* | *honesty check* | 1181s |
+
+**Net movement: ROC-AUC 0.6503 → 0.7134, F1 0.3678 → 0.4165.** Step 6 is the deployed
+model — `maxDepth` 8, `maxIter` 80, decision threshold 0.55, found by `TrainValidationSplit`
+over four configurations.
+
+**Step 2 is a null result and is reported as one.** Threshold tuning gained *exactly* zero
+on the weighted Random Forest, because class weighting had already placed the F1 optimum at
+0.50. Deleting the row would have made the study look cleaner and been dishonest; the step
+earns its keep at step 5, where GBT's optimum is 0.55.
+
+**Accuracy below the 81.39% baseline is the intended trade.** A model predicting "on time"
+every time scores 81.39% and is useless. The tuned GBT reaches 71.56% accuracy while
+catching **115,922 of 212,152 delayed flights (54.6%)** at 33.65% precision.
 
 Two methodological safeguards:
 
-1. **Leakage enforced in code.** A `BANNED` set (`dep_delay`, taxi times, `air_time`,
-   actual times, cause columns) is asserted against the feature set before training.
+1. **Leakage enforced in code.** A `BANNED` set of 18 columns (`dep_delay`, taxi times,
+   `air_time`, actual times, the five cause columns, `status`) is asserted against the
+   feature set before *every* fit — not documented in a comment, executed as an assertion.
 2. **Historical rate features computed from the training split only**, with Bayesian
    smoothing toward the global mean. Computing them over the full dataset would leak
    test-set outcomes into training features — a subtle and common error.
 
-Top features: `sched_dep_hour` (0.232), `route_delay_rate` (0.174),
-`time_of_day=morning` (0.108).
+Top features, with names resolved from the vector's `ml_attr` metadata rather than a
+hand-maintained list:
 
-**The ceiling is inherent.** Pre-departure features cannot observe day-of weather, the
-inbound aircraft running late (39.8% of delay minutes), or ATC decisions. Large irreducible
-error is the correct result.
+| Feature | Importance |
+|---|---|
+| `origin_hour_delay_rate` | 0.1063 |
+| `month` | 0.0894 |
+| `origin_delay_rate` | 0.0756 |
+| `dewpoint_c` | 0.0731 |
+| `temp_c` | 0.0677 |
+
+Weather columns together account for **28.5%** of total importance.
+
+**The random split flatters the model.** Step 7 retrains on Jan–Sep and tests Oct–Dec:
+ROC-AUC falls to **0.6580**. Part of that is genuine distribution shift — the delay rate
+itself moves from 19.45% to 16.07% across the boundary. The 0.7134 headline should always
+be read next to it.
+
+### External data — NOAA weather enrichment (notebook 11)
+
+The proposal calls for a second data source and for unstructured data. NOAA's Integrated
+Surface Database supplies both.
+
+| Measurement | Result |
+|---|---|
+| Airports matched to ISD stations | 60 (57 by ICAO `K`+IATA, 3 by nearest-neighbour) |
+| Flights covered | 4,924,097 — **84.6%** of the dataset |
+| Raw ISD ingested | 424 MB hourly observations |
+
+The three ICAO failures are **HNL, SJU and OGG**: Hawaii and Puerto Rico use the `PH` and
+`TJ` prefixes, so `K`+IATA cannot resolve them by construction. A haversine nearest-station
+fallback places all three within 1.2 km.
+
+Two hazards that would have silently corrupted the features:
+
+- **ISD sentinel values.** Missing temperature is `+9999`, not null. Scaled by the
+  documented divisor of 10 it becomes a plausible 999.9 °C and poisons every mean
+  downstream. Each composite field is split component-wise and its sentinel mapped to
+  `NULL` before scaling.
+- **Schema drift across stations.** ISD files carry 82–104 columns depending on which
+  instruments a station reports. A single directory-glob read fails; the notebook reads
+  per-file and unions by name.
+
+**Unstructured text.** `metar_text` is free-form aviation weather —
+`METAR KMIA 010053Z 33005KT 10SM BKN049 24/19 A3018 RMK AO2 SLP219`. Six phenomena are
+extracted by regex into boolean features: thunderstorm, snow, rain, fog, freezing
+precipitation and haze/smoke. Negative lookbehinds keep `FZRA` from being counted as rain
+and catch intensity-prefixed forms such as `-SN`.
+
+Weather contributed **+0.0145 ROC-AUC** (step 3) — real, but smaller than its crosstabs
+suggest. Freezing precipitation carries a 54.65% delay rate against a 19.05% base, yet
+occurs on 0.18% of flights; a large effect on a thin slice moves aggregate AUC very little.
+That gap between a striking conditional rate and a modest aggregate gain is itself the
+lesson.
 
 ### Clustering — airport profiles (notebook 07)
 
@@ -299,17 +367,23 @@ direct queries (all match to 0.01); airline, airport and route totals each recon
 | MongoDB index | 4,706 docs scanned | 1 | 4,706× |
 
 ### Dashboard
-Six pages, all verified headlessly with `streamlit.testing.AppTest` — zero exceptions. The
-prediction path was exercised end to end. With MongoDB stopped, all pages still render from
-the Parquet fallback.
+Seven pages, all verified headlessly with `streamlit.testing.AppTest` — zero exceptions.
+The prediction path was exercised end to end. With MongoDB stopped, all pages still render
+from the Parquet fallback, and the home page states which source is live.
+
+`AppTest` is necessary but not sufficient: the airport map once rendered every US airport
+over Africa and passed the whole suite, because a missing `center`/`zoom` is not an
+exception. Visual checks are part of the dashboard's verification for that reason.
 
 ---
 
 ## 9. Limitations and honest caveats
 
-1. **Random rather than temporal train/test split.** The plan specifies stratified
-   splitting, which is implemented, but a time-based split (train Jan–Sep, test Oct–Dec)
-   would be the more honest test of a forecasting claim.
+1. **The headline model number comes from a random split.** Both splits are now
+   reported: stratified random gives ROC-AUC 0.7134, temporal (train Jan–Sep, test
+   Oct–Dec) gives 0.6580. The temporal figure is the honest forecasting claim, and the
+   gap is partly genuine distribution shift — the delay rate moves 19.45% → 16.07% across
+   that boundary.
 2. **Local mode cannot measure distributed cost.** `reduceByKey` vs `groupByKey` showed
    only ~1.2× here, because a single machine has no network for a combiner to save. The
    syllabus principle stands; this environment cannot demonstrate it.
@@ -319,8 +393,17 @@ the Parquet fallback.
    behave in production, not what is running.
 5. **7 airports (617 flights, 0.011%) validate below 95%** in the DOT-code recovery —
    tiny and seasonal airports. Documented rather than hidden.
-6. **Model ceiling.** ROC-AUC 0.663 reflects what is knowable before departure. Weather
-   enrichment is the main avenue for improvement.
+6. **Weather covers 84.6% of flights, not all of them.** 60 airports were matched to NOAA
+   stations; flights through smaller airports carry imputed values, with the imputation
+   done from training-split means only.
+7. **A published benchmark was wrong and has been retracted.** The scaling section of
+   notebook 10 originally reported a memory wall at full data size. It was CPU contention
+   from a concurrent training job, not a memory limit — re-measured on an idle machine the
+   curve is sub-linear (1.05M → 1.64M rows/s). The retraction is written up as **D5** in
+   `engineering_decisions.md`. A benchmark taken on a busy machine measures the machine,
+   not the code.
+8. **HDFS is documented, not deployed.** Setting up a real cluster was out of scope for
+   the environment; §3 describes the architecture and the concepts it would demonstrate.
 
 ---
 
@@ -328,24 +411,28 @@ the Parquet fallback.
 
 | Deliverable | Location |
 |---|---|
-| 10 Colab-style notebooks, all executed | `notebooks/` |
+| 12 notebooks, all executed | `notebooks/` |
 | Curated Parquet + marts | `data/` (git-ignored, regenerable) |
 | MongoDB serving layer | `docker compose up -d`, notebook 08 |
-| Streamlit dashboard, 6 pages | `app/` |
+| Streamlit dashboard, 7 pages | `app/` |
 | Project report | this file |
 | Data dictionary | `docs/data_dictionary.md` |
 | NoSQL analysis | `docs/nosql_comparison.md` |
-| Engineering decisions and defects | `docs/engineering_decisions.md` |
+| Engineering decisions, defects and one retraction | `docs/engineering_decisions.md` |
+| All measured figures in one place | `docs/testing_and_performance.md` |
 | Environment smoke test | `scripts/smoke_test.py` |
+| Weather ingestion, streaming producer/consumer | `scripts/` |
 
 ### Reproducing from scratch
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python "pyspark[sql]==4.0.0" pandas pyarrow \
-    ipykernel pymongo python-dotenv streamlit plotly
+uv pip install --python .venv/bin/python "pyspark[sql]==4.0.0" pandas pyarrow numpy \
+    ipykernel pymongo python-dotenv streamlit plotly requests
 .venv/bin/python scripts/smoke_test.py        # expect PASS
-# run notebooks 01 → 10 in order
+# notebooks 01 → 05 build the curated data and marts
+.venv/bin/python scripts/fetch_weather.py     # NOAA ISD, ~424 MB (needed by 11, 06, 12)
+# then notebooks 11, 06, 07, 12, 08, 09, 10
 docker compose up -d
 .venv/bin/streamlit run app/Home.py
 ```

@@ -3,6 +3,11 @@
 Curated dataset: `data/curated/flights.parquet` — **5,819,078 rows x 49 columns**,
 partitioned by `month`. Produced by `notebooks/02_data_cleaning_etl.ipynb`.
 
+Notebook 11 writes a second curated file, `data/curated/flights_weather.parquet` — the same
+5,819,078 rows and the same 49 columns, plus **12 NOAA weather columns** documented in
+[§ Weather columns](#weather-columns-flights_weatherparquet) below, for **61 in total**.
+That is the file the ML notebooks read.
+
 ## Reading the `Leakage` column
 
 `POST` marks a field known only **after** the aircraft departs. Notebook 06 asserts that
@@ -74,6 +79,37 @@ Every null in this dataset is **structural** — it encodes a fact, and must not
 | 48 | `is_weekend` | boolean | 0.00% | - | True for Saturday and Sunday. |
 | 49 | `month` | int | 0.00% | - | 1-12. Parquet partition key. |
 
+## Weather columns (`flights_weather.parquet`)
+
+Added by `notebooks/11_weather_enrichment.ipynb` from NOAA's Integrated Surface Database,
+joined on `(origin, observation hour)`. None is `POST` — all describe conditions at the
+origin airport at the scheduled departure hour, so all are admissible to the model.
+
+| # | Column | Type | Null % | Notes |
+|---|---|---|---|---|
+| 50 | `temp_c` | double | 16.23% | Air temperature, °C. ISD sentinel `+9999` mapped to null before scaling. |
+| 51 | `dewpoint_c` | double | 16.23% | Dew point, °C. Same sentinel handling. |
+| 52 | `wind_speed` | double | 16.24% | Wind speed, m/s. |
+| 53 | `visibility_m` | double | 16.22% | Horizontal visibility, metres. Capped at 16,000 by the instrument. |
+| 54 | `ceiling_m` | double | 16.22% | Cloud ceiling height, metres. |
+| 55 | `precip_mm` | double | 16.21% | Precipitation depth, mm. |
+| 56 | `wx_thunderstorm` | int | 16.21% | 1 if the METAR text reports a thunderstorm. Regex-extracted. |
+| 57 | `wx_snow` | int | 16.21% | 1 if snow is reported. Intensity prefixes (`-SN`, `+SN`) included. |
+| 58 | `wx_rain` | int | 16.21% | 1 if rain is reported. Negative lookbehind excludes `FZRA`. |
+| 59 | `wx_fog` | int | 16.21% | 1 if fog or mist (`FG`, `BR`). |
+| 60 | `wx_freezing` | int | 16.21% | 1 if freezing precipitation (`FZRA`, `FZDZ`, `FZFG`). 0.18% of flights. |
+| 61 | `wx_haze_smoke` | int | 16.21% | 1 if haze or smoke (`HZ`, `FU`). |
+
+**The ~16.2% null rate is structural and is not an error.** Weather was matched for 60
+airports covering 4,924,097 flights (84.6%); the remaining flights depart from airports with
+no nearby ISD station. The extra ~0.8 pp gap between that 84.6% and the 83.77% of rows that
+actually carry a reading is flights at a *matched* airport with no observation recorded for
+their specific hour.
+
+These nulls **are** imputed before training — unlike every other null in this dataset —
+because "no weather station nearby" is not itself informative about delay. Imputation uses
+training-split means only.
+
 ## Source columns dropped in ETL
 
 | Raw column | Reason |
@@ -90,8 +126,9 @@ Every null in this dataset is **structural** — it encodes a fact, and must not
 Dataset/flights.csv        565 MB   5,819,079 rows   (source, unmodified)
   -> data/raw/*.parquet    137 MB   5,819,079 rows   notebook 01, partitioned by month
   -> data/curated/*.parquet 201 MB  5,819,078 rows   notebook 02, 11 cleaning rules
-  -> data/marts/*.parquet   276 KB  6,076 documents  notebook 05 + 06 + 07
-  -> MongoDB               1.76 MB  6,076 documents  notebook 08
+  -> flights_weather.parquet        5,819,078 rows   notebook 11, + 12 NOAA columns
+  -> data/marts/*.parquet            dashboard documents  notebooks 05 + 06 + 07 + 12
+  -> MongoDB                         one collection per mart, indexed  notebook 08
 ```
 
 One row is lost between raw and curated: the single duplicate business key

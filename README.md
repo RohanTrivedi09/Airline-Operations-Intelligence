@@ -47,9 +47,12 @@ Dataset/          source CSVs (flights, airlines, airports)
 data/raw/         01 output: Parquet, partitioned by month   [git-ignored]
 data/curated/     02 output: cleaned + enriched              [git-ignored]
 data/marts/       05 output: dashboard-ready aggregates      [git-ignored]
-notebooks/        01-10
+data/weather/     NOAA ISD hourly observations                [git-ignored]
+notebooks/        01-12
+app/              Streamlit dashboard (Home + 7 pages)
+docs/             report, data dictionary, NoSQL, decisions, testing
 src/config.py     shared paths + Spark session factory
-scripts/          smoke_test.py
+scripts/          smoke_test, fetch_weather, build_inference_rates, stream_producer/consumer
 ```
 
 ## Progress
@@ -61,13 +64,15 @@ scripts/          smoke_test.py
 | 03 | `rdd_mapreduce_demo` — MapReduce, RDD internals, API benchmark | **Done, executed, verified** |
 | 04 | `sparksql_demo` — views, SQL vs DataFrame equivalence, Catalyst | **Done, executed, verified** |
 | 05 | `aggregations` — 8 dashboard marts, validated | **Done, executed, verified** |
-| 06 | `ml_classification` — LR + Random Forest, leakage-controlled | **Done, executed, verified** |
+| 06 | `ml_classification` — 8-step ablation, LR → tuned GBT, leakage-controlled | **Done, executed, verified** |
 | 07 | `ml_clustering` — K-Means airport profiles | **Done, executed, verified** |
 | 08 | `mongodb_push` — 10 collections, indexed | **Done, executed, verified** |
 | 09 | `streaming_demo` *(extension)* — Structured Streaming | **Done, executed, verified** |
-| 10 | `spark_concepts_doc` — architecture, DAG, fault tolerance | **Done, executed, verified** |
-| — | Streamlit dashboard — 6 pages | **Done, all pages executed and verified** |
-| — | Documentation — report, data dictionary, NoSQL | **Done** |
+| 10 | `spark_concepts_doc` — architecture, DAG, fault tolerance, scaling | **Done, executed, verified** |
+| 11 | `weather_enrichment` *(extension)* — NOAA ISD join, METAR text parsing | **Done, executed, verified** |
+| 12 | `aircraft_rotation` *(extension)* — delay propagation, planning vs day-of | **Done, executed, verified** |
+| — | Streamlit dashboard — 7 pages | **Done, all pages executed and verified** |
+| — | Documentation — report, data dictionary, NoSQL, decisions, testing | **Done** |
 
 ## Key findings from notebook 01
 
@@ -200,43 +205,61 @@ Delay causes, over the 1,063,439 flights arriving 15+ min late:
 KPIs cross-checked against independent direct queries (all match to 0.01), and airline,
 airport and route totals each reconcile to exactly 5,819,078 rows.
 
-## Notebook 06 results — delay prediction
+## Notebook 06 results — delay prediction, as an ablation study
 
-Trained **locally** on 4,675,637 rows; Random Forest took 134s on 8 GB, so the Colab
-fallback was not needed.
+The notebook is not a single model. It changes **one thing at a time** on the same
+held-out split (train 4,571,843 / test 1,142,165, positive rate 18.62%) so every gain is
+attributable to a named cause, and reports the steps that gained nothing.
 
-| Metric | Logistic Regression | Random Forest | Baseline |
+| Step | ROC-AUC | F1 | Δ AUC |
 |---|---|---|---|
-| Accuracy | 0.6005 | 0.6098 | **0.8139** |
-| Precision | 0.2608 | 0.2678 | — |
-| Recall | 0.6248 | **0.6324** | — |
-| F1 | 0.3680 | **0.3763** | — |
-| ROC-AUC | 0.6501 | **0.6626** | — |
+| 0. Logistic Regression | 0.6503 | 0.3678 | — |
+| 1. Random Forest | 0.6626 | 0.3765 | +0.0123 |
+| 2. + tuned threshold | 0.6626 | 0.3765 | **+0.0000** |
+| 3. + weather features | 0.6771 | 0.3849 | +0.0145 |
+| 4. + interaction features | 0.6811 | 0.3874 | +0.0040 |
+| 5. Gradient-Boosted Trees | 0.6976 | 0.4008 | +0.0165 |
+| **6. GBT, tuned** | **0.7134** | **0.4165** | +0.0158 |
+| 7. *Temporal split* | *0.6580* | *0.3389* | *honesty check* |
 
-**Accuracy is below the baseline, and that is the intended trade.** Class weighting
-(4.373× on the minority class) sacrifices accuracy to catch delays: the Random Forest
-identifies **134,596 of 212,844 delayed flights (63%)**, where an unweighted model scoring
-81.4% accuracy would catch almost none. ROC-AUC 0.663 is the fair summary — the model
-carries real signal, well above the 0.5 of random guessing.
+**ROC-AUC 0.6626 → 0.7134, F1 0.3765 → 0.4165.** Step 6 is the deployed model
+(`maxDepth` 8, `maxIter` 80, decision threshold 0.55).
 
-Top features (Gini importance, names resolved from vector metadata):
+**Step 2 is a null result, kept in the table.** Threshold tuning gained exactly nothing on
+the weighted Random Forest, because class weighting had already moved the F1 optimum to
+0.50. It earns its place two steps later — GBT's optimum is 0.55.
+
+**Accuracy below the 81.39% majority-class baseline is the intended trade.** A model that
+predicts "on time" every time scores 81.39% and catches no delays. The tuned GBT reaches
+71.56% accuracy while identifying **115,922 of 212,152 delayed flights (54.6%)** at 33.65%
+precision. ROC-AUC is the fair summary, and 0.7134 is well clear of the 0.5 of guessing.
+
+Top features (GBT importance, names resolved from vector metadata, not hand-listed):
 
 | Feature | Importance |
 |---|---|
-| `sched_dep_hour` | 0.2317 |
-| `route_delay_rate` | 0.1743 |
-| `time_of_day=morning` | 0.1077 |
-| `season=autumn` | 0.0728 |
-| `airline_delay_rate` | 0.0666 |
+| `origin_hour_delay_rate` | 0.1063 |
+| `month` | 0.0894 |
+| `origin_delay_rate` | 0.0756 |
+| `dewpoint_c` | 0.0731 |
+| `temp_c` | 0.0677 |
+| `day_of_week` | 0.0624 |
+| `ceiling_m` | 0.0567 |
+
+Weather accounts for **28.5%** of total importance across all its columns.
 
 ### Method notes that matter
-- **Leakage controlled in code**, not comments: a `BANNED` set (dep_delay, taxi times,
-  air_time, actual times, cause columns) is asserted against the feature set before training.
+- **Leakage controlled in code**, not comments: a `BANNED` set of 18 columns (`dep_delay`,
+  taxi times, `air_time`, actual times, the five cause columns) is asserted against the
+  feature set before every fit.
 - **Historical rate features are computed from the training split only**, with Bayesian
   smoothing toward the global mean, so test outcomes never leak into training features.
-- **The ceiling is inherent.** Pre-departure features cannot capture the inbound aircraft
-  running late (39.8% of delay minutes), day-of weather, or ATC decisions. Large
-  irreducible error is the correct result here, not a modelling failure.
+- **The random split flatters the model.** Training on Jan–Sep and testing Oct–Dec drops
+  ROC-AUC to **0.6580** — partly because the delay rate itself shifts from 19.45% to 16.07%
+  across that boundary. Step 7 exists so the headline number is read with that caveat.
+- **The remaining ceiling is structural, and notebook 12 measures it.** Pre-departure
+  features cannot observe the inbound aircraft running late — 39.84% of all delay minutes.
+  That is not a modelling failure; it is information the planning problem does not have.
 
 ## Notebook 07 results — airport operational profiles
 
@@ -296,8 +319,8 @@ docker compose up -d                       # MongoDB serving layer
 .venv/bin/streamlit run app/Home.py         # http://localhost:8501
 ```
 
-Six pages, all verified headlessly with `streamlit.testing.AppTest` — every page executes
-with zero exceptions:
+Seven pages, all verified headlessly with `streamlit.testing.AppTest` — every page
+executes with zero exceptions:
 
 | Page | Question it answers |
 |---|---|
@@ -306,7 +329,8 @@ with zero exceptions:
 | Airports | Map coloured by K-Means cluster or delay rate, rankings, per-airport drill-down |
 | Routes | Origin→destination lookup, most/least reliable, volume vs reliability |
 | Delay causes | Cause breakdown, hour/day/season patterns, delay duration distribution |
-| Prediction | Delay risk for a hypothetical flight, from the saved Random Forest |
+| Prediction | Delay risk for a hypothetical flight, from the saved tuned GBT + weather conditions |
+| Live Monitor | Rolling metrics off a running Structured Streaming job, with an explicit idle state |
 
 **The dashboard performs no aggregation.** It reads precomputed documents — a few hundred
 KB instead of 5.8M rows — which is why every page is instant.
@@ -315,10 +339,13 @@ KB instead of 5.8M rows — which is why every page is instant.
 and the home page states which source is live. Verified by stopping the container mid-test:
 all pages still rendered.
 
-Prediction path verified end to end: LAX→JFK, July, 17:00 departure → **54.3% delay
-probability, MEDIUM risk**, against the 18.6% network baseline.
+The prediction page loads the tuned GBT (`best_delay_classifier`) and its saved decision
+threshold of 0.55, and scores against the 18.62% network baseline. Historical rate features
+for an unseen hypothetical flight come from `inference_defaults` and the `rate_*` marts, so
+inference uses exactly the training-split statistics — never a rate recomputed over the
+test data.
 
-## Notebooks 09 & 10
+## Notebooks 09–12
 
 ### 09 — Structured Streaming `[Extension]`
 
@@ -349,6 +376,44 @@ Every Unit 4 claim demonstrated on the real dataset rather than asserted:
 The fault-tolerance section does not describe lineage — it destroys every cached partition
 and rebuilds the result, then asserts equality with the pre-loss answer.
 
+It also measures **weak scaling** at 25/50/75/100% of the data. An earlier run of this
+section reported a memory wall that turned out to be CPU contention from a concurrent job;
+the finding was retracted and the correction is written up as D5 in
+[`docs/engineering_decisions.md`](docs/engineering_decisions.md).
+
+### 11 — NOAA weather enrichment `[Extension]`
+
+Joins **real external weather** to the flight record — the second data source the proposal
+asks for, and the only unstructured text in the project.
+
+| Measurement | Result |
+|---|---|
+| Airports matched to NOAA ISD stations | **60** (57 by ICAO `K`+IATA, 3 by nearest-neighbour) |
+| Flights covered | **4,924,097 — 84.6%** of the dataset |
+| Raw ISD downloaded | 424 MB of hourly global-hourly CSVs |
+| Curated output | `flights_weather.parquet`, 61 columns |
+
+The three ICAO misses are **HNL, SJU and OGG** — Hawaii and Puerto Rico use the `PH`/`TJ`
+prefixes, not `K`, so the `K`+IATA rule cannot work there by construction. A haversine
+fallback resolves all three to within 1.2 km.
+
+Two parsing hazards handled explicitly:
+
+- **ISD sentinel values.** Missing temperature is encoded as `+9999`, not null. Dividing it
+  by 10 yields a plausible-looking 999.9 °C that would silently poison every downstream
+  mean. Each composite field is parsed component-wise and its sentinel mapped to `NULL`.
+- **Schema drift.** ISD files carry 82–104 columns depending on station. Reading the
+  directory as one glob fails; the notebook reads per-file and unions by name.
+
+**Unstructured text:** the `metar_text` field is free-form aviation weather
+(`METAR KMIA 010053Z 33005KT 10SM BKN049 24/19 A3018 RMK AO2 SLP219`). Six phenomena
+(thunderstorm, snow, rain, fog, freezing, haze/smoke) are extracted by regex into boolean
+features that feed the model — with negative lookbehinds so `FZRA` is not double-counted as
+rain and `-SN` is caught alongside `SN`.
+
+Weather earned **+0.0145 ROC-AUC** in the ablation and carries **28.5%** of final feature
+importance.
+
 ## Documentation
 
 | Document | Contents |
@@ -356,11 +421,12 @@ and rebuilds the result, then asserts equality with the pre-loss answer.
 | [`docs/project_report.md`](docs/project_report.md) | Full report covering all six syllabus units, every figure measured on the running system |
 | [`docs/data_dictionary.md`](docs/data_dictionary.md) | All 49 curated columns with real null percentages, generated from the live schema; marks post-departure fields excluded from the model |
 | [`docs/nosql_comparison.md`](docs/nosql_comparison.md) | RDBMS vs NoSQL, CAP, the four NoSQL families, document modelling, indexing, sharding and replication |
-| [`docs/engineering_decisions.md`](docs/engineering_decisions.md) | Rejected approaches, defects caught, limitations accepted |
+| [`docs/engineering_decisions.md`](docs/engineering_decisions.md) | Rejected approaches, defects caught, limitations accepted, one retracted finding |
+| [`docs/testing_and_performance.md`](docs/testing_and_performance.md) | Every measured figure in one place: ETL contracts, benchmarks, ablation, streaming |
 
 ## Project status: complete
 
-All 10 notebooks executed and verified, dashboard tested, documentation written.
+All 12 notebooks executed and verified, 7-page dashboard tested, documentation written.
 
 | Optimisation | Gain |
 |---|---|

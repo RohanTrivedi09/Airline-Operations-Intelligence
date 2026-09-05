@@ -117,7 +117,7 @@ of the cost: a scan grows linearly with collection size, an index seek logarithm
 
 ## 5. Machine learning
 
-Ablation, all on the same held-out split of 1,143,441 flights:
+Ablation, all on the same held-out split of 1,142,165 flights (train 4,571,843, positive rate 18.62%):
 
 | Step | ROC-AUC | F1 | Δ AUC |
 |---|---|---|---|
