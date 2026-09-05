@@ -33,9 +33,18 @@ def _mongo_db():
         # interpreters do not read the system keychain, so TLS to Atlas fails with
         # CERTIFICATE_VERIFY_FAILED. Harmless for a plain localhost connection, which
         # is not TLS at all, so it can be passed unconditionally.
+        uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        # 1500ms suits a container on localhost, where anything slower means it is
+        # not running. Atlas needs an SRV lookup, a TLS handshake and a replica-set
+        # election across a continent, which will not fit in 1500ms even on a good
+        # link -- so the app would fall back to Parquet while Atlas was perfectly
+        # healthy. 8s is long enough for a real connection and short enough that a
+        # genuinely unreachable cluster still degrades quickly rather than hanging
+        # the page. The fallback is a feature; waiting a minute for it is not.
+        timeout_ms = 8000 if uri.startswith("mongodb+srv://") else 1500
         client = MongoClient(
-            os.getenv("MONGO_URI", "mongodb://localhost:27017"),
-            serverSelectionTimeoutMS=1500,
+            uri,
+            serverSelectionTimeoutMS=timeout_ms,
             tlsCAFile=certifi.where(),
         )
         client.admin.command("ping")
