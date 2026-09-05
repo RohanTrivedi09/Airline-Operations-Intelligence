@@ -48,6 +48,18 @@ Only once. Git tracks the file from then on, so later re-exports are picked up b
 `git add`. The `-f` is not a workaround being repeated — it is the one-time declaration that
 this particular artefact, unlike the rest of `data/`, is not regenerable by the grader.
 
+The **marts are committed for the same reason** (640 KB, 43 files):
+
+```bash
+git add -f data/marts/
+```
+
+Without them the Parquet fallback in `app/utils/db.py` cannot work on Cloud — there would be
+nothing to fall back *to*, and an Atlas outage or a mistyped `MONGO_URI` would take the whole
+app down. With them, the worst case is the home page reporting "Parquet (MongoDB
+unavailable)" while every page still renders. That is the difference between a degraded demo
+and no demo.
+
 ---
 
 ## Step 2 — MongoDB Atlas (needs your account)
