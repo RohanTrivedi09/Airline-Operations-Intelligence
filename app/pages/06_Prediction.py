@@ -63,10 +63,15 @@ if ablation:
     if temporal:
         best = max(ablation, key=lambda r: r["f1"])
         c1, c2 = st.columns(2)
-        c1.metric("Best (random split)", f"AUC {best['roc_auc']:.4f}", f"F1 {best['f1']:.4f}")
-        c2.metric("Temporal split (Jan–Sep → Oct–Dec)",
-                  f"AUC {temporal['roc_auc']:.4f}", f"F1 {temporal['f1']:.4f}",
-                  delta_color="inverse")
+        # The delta must be a real signed number. Passing a label like "F1 0.3389"
+        # gives Streamlit nothing to parse, so it renders an UP arrow next to the
+        # worse result. Default colouring is also correct here: for ROC-AUC, down
+        # is bad, which is exactly what `normal` means.
+        c1.metric("ROC-AUC — random split", f"{best['roc_auc']:.4f}",
+                  f"F1 {best['f1']:.4f}", delta_color="off")
+        c2.metric("ROC-AUC — temporal split (Jan–Sep → Oct–Dec)",
+                  f"{temporal['roc_auc']:.4f}",
+                  f"{temporal['roc_auc'] - best['roc_auc']:+.4f} vs random split")
         st.warning(
             "**The temporal number is the honest one for forecasting.** A random split lets "
             "the model learn from days adjacent to the ones it predicts. Splitting on time "

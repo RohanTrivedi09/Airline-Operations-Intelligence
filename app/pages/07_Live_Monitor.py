@@ -30,9 +30,12 @@ def live(collection: str) -> pd.DataFrame:
     handle = db._mongo_db()
     if handle is None:
         return pd.DataFrame()
-    # Project out _id for the same reason db.load() does: an ObjectId is not data
-    # this dashboard displays, and leaving it in makes every column list positional.
-    return pd.DataFrame(list(handle[collection].find({}, {"_id": 0})))
+    # Keep _id here, unlike db.load(), which projects it away. In the marts it is a
+    # meaningless ObjectId; in these collections it IS the business key -- the origin
+    # airport code in live_airports, the literal "totals" in live_metrics -- because
+    # the consumer upserts on it to make each micro-batch idempotent. Projecting it
+    # out silently removes the airport column this page charts on.
+    return pd.DataFrame(list(handle[collection].find({})))
 
 
 # Default OFF: an always-on rerun loop keeps a Spark-free page busy and makes the

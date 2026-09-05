@@ -210,12 +210,21 @@ def tone_for_delay(rate: float) -> str:
 # Marts follow one naming convention, so column formatting can be inferred from the
 # name instead of restated at all eleven call sites: `*_rate`/`*_pct` are percentages
 # on a 0-100 scale, `total_*`/`*_flights` are counts, `avg_*`/`median_*` are minutes.
+# Marts follow one naming convention, so column formatting can be inferred from the
+# name instead of restated at all thirteen call sites. The duration columns are listed
+# explicitly rather than matched on an `avg_` prefix: `avg_flights` is a count, and a
+# prefix rule renders it as "33525.0 min", which is wrong in a way no exception catches.
 _PCT_SUFFIX = ("_rate", "_pct", "_share")
-# Only the headline comparative rates get a bar. `cancellation_rate` lives around 1-3%
-# and would render as an invisible sliver on a 0-100 axis, so it reads better as a
-# formatted number -- a bar that cannot be seen is worse than no bar.
+# Bars only for the headline comparative rates. `cancellation_rate` sits at 1-3% and
+# would be an invisible sliver on a 0-100 axis; a bar you cannot see is worse than none.
 _BAR_COLUMNS = {"delay_rate", "delay_rate_pct", "on_time_pct"}
-_MIN_PREFIX = ("avg_", "median_", "mean_")
+_MINUTE_COLUMNS = {
+    "avg_delay", "avg_dep_delay", "avg_arr_delay", "median_delay",
+    "dep_delay", "arr_delay", "prev_arr_delay", "scheduled_turnaround",
+}
+_COUNT_SUFFIX = ("_flights", "_minutes", "flights", "delayed", "_count")
+# Percentage columns whose names carry no suffix to key off.
+_PCT_COLUMNS = {"percentage"}
 _LABELS = {
     "airline_code": "Code", "airline_name": "Airline", "airport_code": "Code",
     "airport_name": "Airport", "total_flights": "Flights", "on_time_pct": "On time",
@@ -224,6 +233,9 @@ _LABELS = {
     "avg_arr_delay": "Avg arr delay", "median_delay": "Median delay",
     "routes_served": "Routes", "roc_auc": "ROC-AUC", "f1": "F1",
     "total_minutes": "Total minutes", "origin": "From", "destination": "To",
+    "avg_flights": "Avg flights", "airlines_served": "Airlines",
+    "pct_of_delay_minutes": "Share of delay minutes",
+    "peak_hour_congestion": "Peak congestion", "peak_delay_hour": "Peak delay hour",
 }
 
 
@@ -248,12 +260,11 @@ def table(df, *, columns=None, height=None, hide_index=True, overrides=None):
         if col in _BAR_COLUMNS:
             cfg[col] = st.column_config.ProgressColumn(
                 _label(col), format="%.2f%%", min_value=0, max_value=100)
-        elif col.endswith(_PCT_SUFFIX):
+        elif col.endswith(_PCT_SUFFIX) or col.startswith("pct_") or col in _PCT_COLUMNS:
             cfg[col] = st.column_config.NumberColumn(_label(col), format="%.2f%%")
-        elif col.startswith(_MIN_PREFIX) or col.endswith("_delay"):
+        elif col in _MINUTE_COLUMNS:
             cfg[col] = st.column_config.NumberColumn(_label(col), format="%.1f min")
-        elif col.endswith(("_flights", "_minutes", "flights", "delayed")) \
-                or col.startswith("total_"):
+        elif col.endswith(_COUNT_SUFFIX) or col.startswith("total_"):
             cfg[col] = st.column_config.NumberColumn(_label(col), format="localized")
         else:
             cfg[col] = st.column_config.Column(_label(col))
