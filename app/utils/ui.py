@@ -266,8 +266,12 @@ _LABELS = {
 }
 
 
-def _label(col: str) -> str:
+def label(col: str) -> str:
+    """Human-readable name for a mart column. Shared by tables and chart axes."""
     return _LABELS.get(col, col.replace("_", " ").capitalize())
+
+
+_label = label  # internal alias, kept so existing call sites read unchanged
 
 
 def table(df, *, columns=None, height=None, hide_index=True, overrides=None):
