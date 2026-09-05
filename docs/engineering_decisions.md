@@ -174,3 +174,63 @@ under which a measurement error becomes a confident conclusion.
 **The rule that follows:** a timing on a shared machine measures the machine, not the code.
 Performance claims must come from an otherwise-idle system, and a result that conveniently
 confirms an expected limitation deserves *more* scrutiny than one that surprises.
+
+---
+
+## D6 — LightGBM rejected for the serving model, in favour of scikit-learn
+
+The deployed dashboard cannot load `data/models/best_delay_classifier`: it is a Spark
+`GBTClassificationModel`, and Streamlit Community Cloud has no JVM. Training stays
+distributed; serving does not need to be. The question was which library serves it.
+
+**LightGBM (REJECTED).** The obvious pick — same algorithm family, small artefact, fast.
+It installs, then fails at import:
+
+```
+OSError: dlopen(.../lib_lightgbm.dylib): Library not loaded: @rpath/libomp.dylib
+  tried: '/opt/homebrew/opt/libomp/lib/libomp.dylib' (no such file)
+```
+
+LightGBM's macOS wheels link against Homebrew's OpenMP runtime rather than bundling one.
+Fixing it means `brew install libomp` — a system-level dependency that every future
+contributor would also have to install, for a course project that otherwise needs nothing
+but a Python venv and Java.
+
+**scikit-learn `HistGradientBoostingClassifier` (ACCEPTED).** The same histogram-based
+gradient boosting algorithm LightGBM implements, with self-contained wheels on every
+platform, native categorical support, and no system dependency. It is also a far more
+common package on Streamlit Cloud, which lowers deployment risk.
+
+**The trade accepted:** LightGBM is generally faster to train and slightly more tunable.
+Neither matters here — the serving model is trained once, offline, and its job is to
+reproduce the Spark GBT's decisions without a JVM, not to win a benchmark.
+
+---
+
+## D7 — No component library for the dashboard navigation
+
+The UI overhaul called for a real sidebar with icons, grouping and active states, and the
+obvious route was `streamlit-option-menu` plus `streamlit-extras`.
+
+**Rejected, on deployment risk.** Both are third-party components pinned against
+Streamlit's internal component API; `streamlit-extras` in particular pulls a large
+transitive dependency set. Every one of those packages must also resolve on Streamlit
+Community Cloud, and a build failure there would take down the entire deliverable to gain
+styling.
+
+**Accepted:** `st.page_link` (native since Streamlit 1.31) for the navigation, with the
+automatic `stSidebarNav` list hidden by CSS, and `st.column_config` (native) for the
+styled tables — progress bars, number formats and localised counts included.
+
+**Result:** icons, grouped sections, automatic active-state highlighting and formatted
+tables, with **zero** new runtime dependencies. `app/requirements.txt` contains only
+packages the app genuinely imports.
+
+**A related judgement inside that work.** `st.column_config.ProgressColumn` scales its bar
+between a `min_value` and `max_value`. Scaling to each column's own maximum makes a
+19%-vs-22% delay-rate difference fill the full width and read as dramatic. The bars are
+therefore scaled to a fixed 0–100 axis, which keeps them proportional to the quantity they
+represent. This dashboard already refuses to rank on small samples; exaggerating small
+differences visually would undo that in the graphics what the statistics were careful about.
+For the same reason `cancellation_rate` (typically 1–3%) gets no bar at all — an invisible
+sliver is worse than a formatted number.

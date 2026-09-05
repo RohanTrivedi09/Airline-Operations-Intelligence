@@ -59,16 +59,17 @@ with right:
 | **Routes** | Which origin→destination pairs are reliable? |
 | **Delay causes** | What causes delays, and when do they cluster? |
 | **Prediction** | What is the delay risk for a flight that has not happened yet? |
+| **Live monitor** | What is a running Structured Streaming job seeing right now? |
 """)
 
 ui.section("How it works", "Every number here was precomputed by Apache Spark.")
 st.markdown("""
 ```
 Kaggle CSV   565 MB ─┐
-NOAA weather 445 MB ─┴─▶ PySpark ETL ─▶ Parquet 201 MB
+NOAA weather 424 MB ─┴─▶ PySpark ETL ─▶ Parquet, 61 columns
                               │
-                              ├─▶ Spark aggregations + MLlib
-                              └─▶ MongoDB 1.8 MB ─▶ dashboard
+                              ├─▶ Spark aggregations + MLlib (ablation: AUC 0.65 → 0.71)
+                              └─▶ MongoDB, one collection per mart ─▶ dashboard
 ```
 """)
 ui.note(

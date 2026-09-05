@@ -30,7 +30,9 @@ def live(collection: str) -> pd.DataFrame:
     handle = db._mongo_db()
     if handle is None:
         return pd.DataFrame()
-    return pd.DataFrame(list(handle[collection].find({})))
+    # Project out _id for the same reason db.load() does: an ObjectId is not data
+    # this dashboard displays, and leaving it in makes every column list positional.
+    return pd.DataFrame(list(handle[collection].find({}, {"_id": 0})))
 
 
 # Default OFF: an always-on rerun loop keeps a Spark-free page busy and makes the
@@ -126,8 +128,7 @@ if not airports.empty:
         if alerts.empty:
             st.success("No airport above the alert threshold yet.")
         else:
-            st.dataframe(alerts[["airport", "flights", "delayed", "delay_rate_pct"]],
-                         hide_index=True, width="stretch")
+            ui.table(alerts, columns=["airport", "flights", "delayed", "delay_rate_pct"])
     ui.note(
         "The alert threshold needs a minimum event count for the same reason the batch "
         "rankings do: an airport with three streamed flights can show 100% delayed."
@@ -138,7 +139,7 @@ recent = live("live_recent")
 if not recent.empty:
     cols = [c for c in ["airline_code", "origin", "destination", "sched_dep_hour",
                         "dep_delay", "arr_delay", "is_delayed"] if c in recent.columns]
-    st.dataframe(recent[cols], hide_index=True, width="stretch")
+    ui.table(recent, columns=cols)
 
 if auto:
     import time

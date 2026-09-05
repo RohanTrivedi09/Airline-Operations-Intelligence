@@ -37,21 +37,21 @@ if not monthly.empty:
                         width="stretch")
 
 st.markdown("---")
-st.subheader("Airlines")
+ui.section("Airlines", "Ranked by delay rate, with the flight count behind each figure.")
 air = db.load("airline_metrics").sort_values("delay_rate")
 if not air.empty:
     left, right = st.columns(2)
     with left:
         st.markdown("**Most reliable**")
-        st.dataframe(air.head(5)[["airline_name", "total_flights", "on_time_pct", "delay_rate"]],
-                     hide_index=True, width="stretch")
+        ui.table(air.head(5), columns=["airline_name", "total_flights",
+                                       "on_time_pct", "delay_rate"])
     with right:
         st.markdown("**Least reliable**")
-        st.dataframe(air.tail(5).iloc[::-1][["airline_name", "total_flights", "on_time_pct", "delay_rate"]],
-                     hide_index=True, width="stretch")
+        ui.table(air.tail(5).iloc[::-1], columns=["airline_name", "total_flights",
+                                                 "on_time_pct", "delay_rate"])
 
 st.markdown("---")
-st.subheader("Airports")
+ui.section("Airports", "Best and worst performers among airports that clear the threshold.")
 ui.note("Only airports with <strong>10,000+ flights</strong> are ranked. "
         "Below that, a delay rate is driven by noise rather than performance.")
 ap = db.ranked("airport_metrics").sort_values("delay_rate")
@@ -60,10 +60,10 @@ if not ap.empty:
     cols = ["airport_code", "city", "total_flights", "delay_rate"]
     with left:
         st.markdown("**Most reliable**")
-        st.dataframe(ap.head(5)[cols], hide_index=True, width="stretch")
+        ui.table(ap.head(5), columns=cols)
     with right:
         st.markdown("**Least reliable**")
-        st.dataframe(ap.tail(5).iloc[::-1][cols], hide_index=True, width="stretch")
+        ui.table(ap.tail(5).iloc[::-1], columns=cols)
 
 st.markdown("---")
 dist = db.load("delay_distribution")

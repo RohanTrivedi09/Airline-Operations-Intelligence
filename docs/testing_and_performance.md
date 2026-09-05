@@ -144,6 +144,59 @@ training on Jan–Sep and testing Oct–Dec, partly because the delay rate itsel
 
 Training cost: LR 25s, RF 205s, GBT 386s, hyperparameter search 801s over 4 configurations.
 
+### Rotation: what the planning model cannot see (notebook 12)
+
+Same split, same tuned hyperparameters, one difference — four features describing the
+inbound aircraft.
+
+| Model | ROC-AUC | F1 | Precision | Recall | Accuracy | Train |
+|---|---|---|---|---|---|---|
+| Planning (no rotation) | 0.7138 | 0.4165 | 0.3371 | 0.5450 | 0.7162 | 1126s |
+| **Day-of (with rotation)** | **0.8320** | **0.5967** | **0.6745** | 0.5350 | **0.8656** | 1057s |
+
+**Precision doubled at unchanged recall** — the same delays caught with half the false
+alarms — and accuracy 0.8656 clears the 81.39% majority-class baseline that no other model
+in this project does.
+
+**Not comparable to the ablation table above, by construction.** `prev_arr_delay` is the
+inbound's actual arrival delay, knowable hours before departure rather than weeks. The
+planning model is the like-for-like number, and at 0.7138 it independently reproduces the
+ablation's tuned GBT (0.7134) through a different code path.
+
+Propagation evidence behind it, measured before any model was fitted:
+
+| Inbound arrived | Flights | Delay rate |
+|---|---|---|
+| early / on time | 2,735,959 | 9.65% |
+| 0–15 min late | 879,192 | 17.33% |
+| 15–30 min late | 294,830 | 41.89% |
+| 30–60 min late | 218,516 | 74.60% |
+| 60–120 min late | 131,599 | **87.26%** |
+| 2+ hours late | 67,649 | 80.59% |
+
+Pearson correlation 0.5078; 75.2% of flights have a traceable inbound; rotation features
+take 53.2% of total importance, `prev_arr_delay` alone 37.3%.
+
+### Cost of the two GBT fits, from the Spark REST API
+
+Sampled once a minute from `/api/v1/applications/<id>/executors` on an otherwise idle
+machine — the D5 rule applied deliberately this time.
+
+| Measurement | Value |
+|---|---|
+| Wall clock, whole notebook | 2,446s (40.8 min) |
+| Tasks executed | 85,390 |
+| Cumulative input read | 2,142 GB |
+| Shuffle read / write | 15.52 GB / 15.45 GB |
+| GC time | 212s — **8.8%** of 2,406s executor time |
+| Peak storage memory | 5.7 GB against a 3.03 GB nominal pool |
+
+The last row is unified memory management doing its job: storage borrowed from the
+execution pool rather than evicting, and the shuffles spilled to disk instead of failing.
+The 2,142 GB figure is cumulative across 80 boosting iterations over a dataset that is
+201 MB on disk — the clearest illustration in this project of why gradient boosting is
+expensive and why it cannot be parallelised across iterations the way bagging can.
+
 ---
 
 ## 6. Streaming

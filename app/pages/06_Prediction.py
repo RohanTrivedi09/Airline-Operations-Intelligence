@@ -1,7 +1,11 @@
-"""Delay risk for a hypothetical flight, using the tuned GBT model from notebook 06.
+"""Delay risk for a hypothetical flight.
 
-Spark starts lazily and only on this page: a SparkSession costs ~20s, and the other
-pages need nothing but MongoDB reads.
+Scored by the exported serving model (`scripts/export_serving_model.py`), not by the
+Spark GBT it reproduces. Streamlit Community Cloud has no JVM, so a
+`GBTClassificationModel` cannot be loaded there; training stays distributed, serving does
+not need to be. The two agree to 0.0015 ROC-AUC on equivalent splits, and the page shows
+both numbers rather than quietly substituting one for the other. See D6 in
+`docs/engineering_decisions.md`.
 """
 
 import json
@@ -21,10 +25,24 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 MODELS = PROJECT_ROOT / "data" / "models"
 RESULTS_JSON = PROJECT_ROOT / "data" / "marts" / "ml_classification_results.json"
 
+SERVING_DIR = MODELS / "serving"
+
 payload = json.loads(RESULTS_JSON.read_text()) if RESULTS_JSON.exists() else {}
-THRESHOLD = payload.get("best_threshold", 0.5)
-NUMERIC = payload.get("features_used", {}).get("numeric", [])
-CATEGORICAL = payload.get("features_used", {}).get("categorical", [])
+
+
+@st.cache_resource
+def load_serving_model():
+    """Load the exported model and its metadata, or (None, None) if not yet built."""
+    meta_path = SERVING_DIR / "serving_model.json"
+    model_path = SERVING_DIR / "hgb_delay_classifier.joblib"
+    if not (meta_path.exists() and model_path.exists()):
+        return None, None
+    import joblib
+    return joblib.load(model_path), json.loads(meta_path.read_text())
+
+
+MODEL, META = load_serving_model()
+THRESHOLD = (META or {}).get("threshold", payload.get("best_threshold", 0.5))
 
 # ---------------------------------------------------------------- model performance
 ablation = payload.get("ablation", [])
@@ -34,7 +52,12 @@ if ablation:
                f"{payload.get('test_rows', 0):,} flights. A step that did not help is kept "
                "in the table as a null result rather than dropped.")
     tbl = pd.DataFrame(ablation)[["step", "roc_auc", "f1", "recall", "precision", "threshold"]]
-    st.dataframe(tbl, hide_index=True, width="stretch")
+    ui.table(tbl, overrides={
+        "step": st.column_config.Column("Step", width="large"),
+        **{c: st.column_config.NumberColumn(c.replace("_", " ").upper(), format="%.4f")
+           for c in ("roc_auc", "f1", "recall", "precision")},
+        "threshold": st.column_config.NumberColumn("Threshold", format="%.2f"),
+    })
 
     temporal = payload.get("temporal_check")
     if temporal:
@@ -51,6 +74,17 @@ if ablation:
             f"{best['roc_auc']:.3f} to {temporal['roc_auc']:.3f} — partly because the delay "
             "rate itself shifts from 19.45% (Jan–Sep) to 16.07% (Oct–Dec)."
         )
+
+if META:
+    ui.note(
+        "<strong>Which model scores the flight below.</strong> The table above is the "
+        "Spark MLlib ablation — that is where the modelling work happened. Scoring here "
+        "uses an exported scikit-learn model with the identical feature set, because this "
+        f"dashboard runs without a JVM. It reaches <strong>ROC-AUC {META['roc_auc']:.4f}</strong> "
+        f"against the Spark GBT's <strong>0.7134</strong> (F1 {META['f1']:.4f} vs 0.4165), "
+        "on its own equivalent split. The two are the same model in every way that "
+        "matters; showing both numbers is how you can check that claim rather than take it."
+    )
 
 st.markdown("---")
 st.subheader("Estimate risk for a flight")
@@ -108,18 +142,13 @@ def lookup(collection: str, keys: dict, column: str, default: float) -> float:
     return float(hit.iloc[0][column]) if not hit.empty else default
 
 
+if MODEL is None:
+    st.error("Serving model not found. Build it with "
+             "`.venv/bin/python scripts/export_serving_model.py`.")
+    st.stop()
+
 if st.button("Predict delay risk", type="primary"):
-    with st.spinner("Starting Spark and loading the model (~20s on first run)…"):
-        sys.path.insert(0, str(PROJECT_ROOT / "src"))
-        from config import build_spark
-        from pyspark.ml import PipelineModel
-        from pyspark.ml.classification import GBTClassificationModel
-        from pyspark.ml.functions import vector_to_array
-
-        spark = build_spark("dashboard-prediction")
-        prep = PipelineModel.load(str(MODELS / "feature_pipeline"))
-        model = GBTClassificationModel.load(str(MODELS / "best_delay_classifier"))
-
+    with st.spinner("Scoring…"):
         defaults = db.load("inference_defaults")
         g = float(defaults.iloc[0]["global_delay_rate"]) if not defaults.empty else 0.1861
 
@@ -173,14 +202,16 @@ if st.button("Predict delay risk", type="primary"):
             "wind_speed": float(wind),
             "visibility_m": vis, "ceiling_m": ceiling, "precip_mm": precip,
             **flags,
-            "weight": 1.0,
         }
 
-        sdf = spark.createDataFrame(pd.DataFrame([record]))
-        out = model.transform(prep.transform(sdf)) \
-                   .select(vector_to_array("probability").getItem(1).alias("p")).first()
-        prob = float(out["p"])
-        spark.stop()
+        # Build the design matrix exactly as export_serving_model.py did: numeric
+        # columns first in their recorded order, then the categoricals with their
+        # training levels. Column order and category levels are part of the model.
+        frame = pd.DataFrame([record])
+        X = frame[META["numeric_features"]].astype("float32")
+        for c in META["categorical_features"]:
+            X[c] = pd.Categorical(frame[c], categories=META["category_levels"][c])
+        prob = float(MODEL.predict_proba(X)[0, 1])
 
     band, colour = (("HIGH", "🔴") if prob >= THRESHOLD + 0.15 else
                     ("ELEVATED", "🟠") if prob >= THRESHOLD else ("LOW", "🟢"))

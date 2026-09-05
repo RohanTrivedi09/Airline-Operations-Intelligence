@@ -277,6 +277,55 @@ occurs on 0.18% of flights; a large effect on a thin slice moves aggregate AUC v
 That gap between a striking conditional rate and a modest aggregate gain is itself the
 lesson.
 
+### Delay propagation — the aircraft rotation model (notebook 12)
+
+Notebook 05 measured late aircraft as the largest single cause of delay minutes (39.84%).
+Notebook 06 cannot see it: it scores each flight independently, with no notion that the
+aircraft was somewhere else two hours ago. Notebook 12 reconstructs the daily chain with a
+window over `(tail_number, flight_date)` and measures what that blindness costs.
+
+**75.2%** of flights have a traceable inbound leg. For those, the relationship is strong:
+
+| Inbound arrived | Flights | Delay rate | vs 18.61% base |
+|---|---|---|---|
+| early / on time | 2,735,959 | 9.65% | −8.97 pp |
+| 0–15 min late | 879,192 | 17.33% | −1.28 pp |
+| 15–30 min late | 294,830 | 41.89% | +23.28 pp |
+| 30–60 min late | 218,516 | 74.60% | +55.99 pp |
+| 60–120 min late | 131,599 | **87.26%** | +68.65 pp |
+| 2+ hours late | 67,649 | 80.59% | +61.98 pp |
+
+Pearson correlation, inbound arrival delay vs this flight's: **0.5078**. Delay compounds
+along the chain — leg 2 of an aircraft's day runs 16.15% late, leg 7 runs 28.03%, with mean
+arrival delay rising 2.08 → 11.98 minutes.
+
+Two models were then trained on the same split with the same tuned hyperparameters. The
+only difference is four rotation features.
+
+| Model | ROC-AUC | F1 | Precision | Recall | Accuracy |
+|---|---|---|---|---|---|
+| Planning (no rotation) | 0.7138 | 0.4165 | 0.3371 | 0.5450 | 0.7162 |
+| **Day-of (with rotation)** | **0.8320** | **0.5967** | **0.6745** | 0.5350 | **0.8656** |
+
+**Precision doubled at unchanged recall** — the same delays caught with half the false
+alarms. The day-of model also reaches 86.56% accuracy, clearing the 81.39% majority-class
+baseline that §6's planning model never does. `prev_arr_delay` carries 37.3% of importance
+on its own; the four rotation features carry **53.2%** between them.
+
+**These are answers to different questions and are never merged.** `prev_arr_delay` is the
+inbound's *actual* arrival delay — available hours before departure, not weeks. Quoting
+0.8320 as an improvement on notebook 06's 0.7134 would be changing the question to make the
+answer look better. The planning number remains the project's headline.
+
+The planning model's 0.7138 also independently reproduces notebook 06's 0.7134 through a
+separate code path, which is a useful check on both.
+
+**A prediction that was wrong.** §5 of the notebook originally argued the gain would be
+"real but bounded" because schedules build in turnaround slack. It was written before the
+run and the data refuted it. Slack does absorb delay — an inbound 0–15 minutes late leaves
+the next flight *below* the network rate — but it collapses in the tail, and the tail is
+what matters. The notebook keeps the wrong prediction alongside the correction.
+
 ### Clustering — airport profiles (notebook 07)
 
 K-Means over 6 operational features, on the 80 airports meeting the 10,000-flight
@@ -393,16 +442,20 @@ exception. Visual checks are part of the dashboard's verification for that reaso
    behave in production, not what is running.
 5. **7 airports (617 flights, 0.011%) validate below 95%** in the DOT-code recovery —
    tiny and seasonal airports. Documented rather than hidden.
-6. **Weather covers 84.6% of flights, not all of them.** 60 airports were matched to NOAA
+6. **The rotation model is not a better version of the planning model.** Notebook 12
+   reaches ROC-AUC 0.8320, but only by using the inbound aircraft's actual arrival delay,
+   which is unknowable at planning time. The two are reported separately throughout, and
+   0.7134 remains the headline. Only 75.2% of flights have a traceable inbound at all.
+7. **Weather covers 84.6% of flights, not all of them.** 60 airports were matched to NOAA
    stations; flights through smaller airports carry imputed values, with the imputation
    done from training-split means only.
-7. **A published benchmark was wrong and has been retracted.** The scaling section of
+8. **A published benchmark was wrong and has been retracted.** The scaling section of
    notebook 10 originally reported a memory wall at full data size. It was CPU contention
    from a concurrent training job, not a memory limit — re-measured on an idle machine the
    curve is sub-linear (1.05M → 1.64M rows/s). The retraction is written up as **D5** in
    `engineering_decisions.md`. A benchmark taken on a busy machine measures the machine,
    not the code.
-8. **HDFS is documented, not deployed.** Setting up a real cluster was out of scope for
+9. **HDFS is documented, not deployed.** Setting up a real cluster was out of scope for
    the environment; §3 describes the architecture and the concepts it would demonstrate.
 
 ---

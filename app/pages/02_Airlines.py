@@ -27,15 +27,13 @@ st.plotly_chart(
 
 st.caption("Every airline is shown with its flight count, so a small carrier's score can be "
            "read in context rather than taken at face value.")
-st.dataframe(
-    ranked[["airline_code", "airline_name", "total_flights", "on_time_pct",
-            "avg_dep_delay", "avg_arr_delay", "median_delay", "delay_rate",
-            "cancellation_rate", "routes_served"]],
-    hide_index=True, width="stretch")
+ui.table(ranked, columns=["airline_code", "airline_name", "total_flights", "on_time_pct",
+                          "avg_dep_delay", "avg_arr_delay", "median_delay", "delay_rate",
+                          "cancellation_rate", "routes_served"])
 
 st.markdown("---")
-st.subheader("Delay rate vs cancellation rate")
-st.caption("Bubble size is flight volume. An airline can be punctual but cancel often — "
+ui.section("Delay rate vs cancellation rate",
+           "Bubble size is flight volume. An airline can be punctual but cancel often — "
            "these are different failure modes and worth separating.")
 st.plotly_chart(
     charts.scatter(air, "delay_rate", "cancellation_rate",
@@ -44,7 +42,7 @@ st.plotly_chart(
     width="stretch")
 
 st.markdown("---")
-st.subheader("Compare two airlines")
+ui.section("Compare two airlines", "Side by side on the same measures.")
 c1, c2 = st.columns(2)
 names = sorted(air["airline_name"])
 a = c1.selectbox("Airline A", names, index=0)

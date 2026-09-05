@@ -1,0 +1,99 @@
+{
+  "algorithm": "sklearn HistGradientBoostingClassifier",
+  "purpose": "Spark-free serving for Streamlit Community Cloud",
+  "numeric_features": [
+    "month",
+    "day_of_week",
+    "sched_dep_hour",
+    "distance",
+    "sched_duration",
+    "is_weekend_int",
+    "origin_delay_rate",
+    "dest_delay_rate",
+    "airline_delay_rate",
+    "route_delay_rate",
+    "origin_hour_delay_rate",
+    "airline_origin_delay_rate",
+    "temp_c",
+    "dewpoint_c",
+    "wind_speed",
+    "visibility_m",
+    "ceiling_m",
+    "precip_mm",
+    "wx_thunderstorm",
+    "wx_snow",
+    "wx_rain",
+    "wx_fog",
+    "wx_freezing",
+    "wx_haze_smoke"
+  ],
+  "categorical_features": [
+    "airline_code",
+    "time_of_day",
+    "season"
+  ],
+  "category_levels": {
+    "airline_code": [
+      "AA",
+      "AS",
+      "B6",
+      "DL",
+      "EV",
+      "F9",
+      "HA",
+      "MQ",
+      "NK",
+      "OO",
+      "UA",
+      "US",
+      "VX",
+      "WN"
+    ],
+    "time_of_day": [
+      "afternoon",
+      "evening",
+      "morning",
+      "night"
+    ],
+    "season": [
+      "autumn",
+      "spring",
+      "summer",
+      "winter"
+    ]
+  },
+  "weather_means": {
+    "temp_c": 16.481596052290946,
+    "dewpoint_c": 8.823369510638917,
+    "wind_speed": 3.616778026864489,
+    "visibility_m": 14933.53480151895,
+    "ceiling_m": 12147.380463274856,
+    "precip_mm": 0.10856710374063952,
+    "wx_thunderstorm": 0.009354931012437506,
+    "wx_snow": 0.009733145147890856,
+    "wx_rain": 0.0535671200975949,
+    "wx_fog": 0.07116894512425899,
+    "wx_freezing": 0.0014142600292607322,
+    "wx_haze_smoke": 0.010758235873636831
+  },
+  "global_delay_rate": 0.18611084252164528,
+  "smoothing": 100,
+  "threshold": 0.55,
+  "roc_auc": 0.7149,
+  "f1": 0.4177,
+  "precision": 0.3386,
+  "recall": 0.545,
+  "accuracy": 0.7172,
+  "confusion": {
+    "tp": 115905,
+    "fp": 226372,
+    "fn": 96783,
+    "tn": 703742
+  },
+  "train_rows": 4571206,
+  "test_rows": 1142802,
+  "train_seconds": 61.4,
+  "n_iter": 200,
+  "model_size_mb": 0.65,
+  "split_note": "Own stratified 80/20 split with train-split-only smoothed rates. Comparable to, not measured on, the Spark GBT's exact test rows."
+}

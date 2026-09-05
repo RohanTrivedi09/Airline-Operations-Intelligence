@@ -1,0 +1,19 @@
+# Runtime dependencies for the deployed dashboard (Streamlit Community Cloud).
+#
+# Deliberately excludes pyspark: Streamlit Cloud has no JVM, and the app does not
+# need one. Training happens in the notebooks; serving uses the exported
+# scikit-learn model from scripts/export_serving_model.py.
+#
+# Do NOT regenerate with `pip freeze` from the dev venv -- that pulls in pyspark
+# and py4j, and the Cloud build will fail.
+
+streamlit==1.63.0
+pandas==3.0.5
+numpy==2.5.2
+plotly==7.0.0
+pyarrow==25.0.1
+pymongo==4.18.0
+python-dotenv==1.2.3
+scikit-learn==1.9.0
+scipy==1.18.1
+joblib==1.6.0

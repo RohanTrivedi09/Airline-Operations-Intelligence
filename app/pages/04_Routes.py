@@ -18,7 +18,7 @@ eligible = db.ranked("route_metrics")
 st.caption(f"{len(routes):,} routes in total; {len(eligible):,} have at least 1,000 flights "
            "and are eligible for ranking.")
 
-st.subheader("Look up a route")
+ui.section("Look up a route", "Any origin-destination pair flown in 2015.")
 c1, c2 = st.columns(2)
 origins = sorted(routes["origin"].unique())
 o = c1.selectbox("Origin", origins, index=origins.index("LAX") if "LAX" in origins else 0)
@@ -49,16 +49,16 @@ else:
 st.markdown("---")
 left, right = st.columns(2)
 cols = ["route", "total_flights", "avg_delay", "delay_rate", "cancellation_rate"]
-left.subheader("Most reliable")
-left.dataframe(eligible.sort_values("delay_rate").head(15)[cols],
-               hide_index=True, width="stretch")
-right.subheader("Least reliable")
-right.dataframe(eligible.sort_values("delay_rate", ascending=False).head(15)[cols],
-                hide_index=True, width="stretch")
+with left:
+    st.subheader("Most reliable")
+    ui.table(eligible.sort_values("delay_rate").head(15), columns=cols)
+with right:
+    st.subheader("Least reliable")
+    ui.table(eligible.sort_values("delay_rate", ascending=False).head(15), columns=cols)
 
 st.markdown("---")
-st.subheader("Volume vs reliability")
-st.caption("Each point is a route. Busy routes cluster toward the network average; extreme "
+ui.section("Volume vs reliability",
+           "Each point is a route. Busy routes cluster toward the network average; extreme "
            "delay rates occur mostly on thin routes, which is exactly why the ranking "
            "threshold exists.")
 st.plotly_chart(
@@ -68,6 +68,5 @@ st.plotly_chart(
     width="stretch")
 
 st.markdown("---")
-st.subheader("Busiest routes")
-st.dataframe(routes.sort_values("total_flights", ascending=False).head(20)[cols],
-             hide_index=True, width="stretch")
+ui.section("Busiest routes", "By total flights flown.")
+ui.table(routes.sort_values("total_flights", ascending=False).head(20), columns=cols)

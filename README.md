@@ -339,8 +339,14 @@ KB instead of 5.8M rows — which is why every page is instant.
 and the home page states which source is live. Verified by stopping the container mid-test:
 all pages still rendered.
 
-The prediction page loads the tuned GBT (`best_delay_classifier`) and its saved decision
-threshold of 0.55, and scores against the 18.62% network baseline. Historical rate features
+The prediction page scores with the **exported serving model** (`scripts/export_serving_model.py`)
+at its saved decision threshold of 0.55, against the 18.62% network baseline. Verified end
+to end: LAX→JFK, July, 17:00 departure, typical weather → **40.7% delay probability**.
+
+The serving model exists because Streamlit Cloud has no JVM. It reaches **ROC-AUC 0.7149**
+against the Spark GBT's **0.7134** on an equivalent split — the same model in every way that
+matters, and the page shows both numbers so the claim is checkable. Training stays
+distributed; serving does not need to be (D6). Historical rate features
 for an unseen hypothetical flight come from `inference_defaults` and the `rate_*` marts, so
 inference uses exactly the training-split statistics — never a rate recomputed over the
 test data.
@@ -414,6 +420,57 @@ rain and `-SN` is caught alongside `SN`.
 Weather earned **+0.0145 ROC-AUC** in the ablation and carries **28.5%** of final feature
 importance.
 
+### 12 — Aircraft rotation: delay propagation `[Extension]`
+
+Notebook 05 measured that **late aircraft is the largest single cause of delay minutes
+(39.84%)** — bigger than carrier, NAS or weather. Notebook 06's model cannot see it, because
+it treats each flight independently. This notebook builds the aircraft's daily chain with a
+window function over `(tail_number, flight_date)` and asks what that blindness costs.
+
+**The propagation is not subtle.** Delay rate of a flight, by how late its inbound aircraft
+arrived:
+
+| Inbound arrived | Flights | Delay rate | vs 18.61% base |
+|---|---|---|---|
+| early / on time | 2,735,959 | 9.65% | −8.97 pp |
+| 0–15 min late | 879,192 | 17.33% | −1.28 pp |
+| 15–30 min late | 294,830 | 41.89% | +23.28 pp |
+| 30–60 min late | 218,516 | 74.60% | +55.99 pp |
+| 60–120 min late | 131,599 | **87.26%** | +68.65 pp |
+| 2+ hours late | 67,649 | 80.59% | +61.98 pp |
+
+Pearson correlation between the inbound's arrival delay and this flight's: **0.5078**.
+Delay also compounds down the chain — leg 2 of the day runs 16.15% late, leg 7 runs 28.03%.
+
+**Two models, same split, same hyperparameters, one difference — the feature set:**
+
+| Model | ROC-AUC | F1 | Precision | Recall | Accuracy |
+|---|---|---|---|---|---|
+| Planning (no rotation) — weeks ahead | 0.7138 | 0.4165 | 0.3371 | 0.5450 | 0.7162 |
+| **Day-of (with rotation) — hours ahead** | **0.8320** | **0.5967** | **0.6745** | 0.5350 | **0.8656** |
+| Gain | **+0.1182** | **+0.1802** | +0.3374 | −0.0100 | +0.1494 |
+
+The planning model at 0.7138 independently reproduces notebook 06's tuned GBT (0.7134)
+through a different code path — a useful check that neither result is a fluke of one script.
+
+**Precision doubled at unchanged recall.** The day-of model finds the same share of delays
+while raising half as many false alarms. It also reaches **86.56% accuracy, beating the
+81.39% majority-class baseline** that the planning model never clears.
+
+`prev_arr_delay` alone carries **37.3%** of feature importance; the four rotation features
+together carry **53.2%** — more than weather and every historical rate combined.
+
+**This is not "the model improved."** The day-of model was given information the planning
+problem does not have: the inbound aircraft's *actual* arrival delay, knowable hours before
+departure, not weeks. A booking site cannot use it; an operations desk can. Quoting 0.8320
+as an improvement on notebook 06 would be changing the question to make the answer look
+better, so the two are reported separately and always together.
+
+The notebook also records a **prediction it got wrong**: §5 originally argued the gain would
+be bounded because turnaround slack absorbs delay. Slack does absorb delay — but only small
+delay, and the argument reasoned about the average case in a distribution whose tail does
+the damage.
+
 ## Documentation
 
 | Document | Contents |
@@ -423,6 +480,7 @@ importance.
 | [`docs/nosql_comparison.md`](docs/nosql_comparison.md) | RDBMS vs NoSQL, CAP, the four NoSQL families, document modelling, indexing, sharding and replication |
 | [`docs/engineering_decisions.md`](docs/engineering_decisions.md) | Rejected approaches, defects caught, limitations accepted, one retracted finding |
 | [`docs/testing_and_performance.md`](docs/testing_and_performance.md) | Every measured figure in one place: ETL contracts, benchmarks, ablation, streaming |
+| [`docs/deployment.md`](docs/deployment.md) | Deploying to Streamlit Community Cloud + MongoDB Atlas, and what the deployed version cannot do |
 
 ## Project status: complete
 
