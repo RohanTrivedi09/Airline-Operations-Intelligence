@@ -26,11 +26,17 @@ load_dotenv(PROJECT_ROOT / ".env")
 def _mongo_db():
     """Return a live MongoDB handle, or None if unreachable."""
     try:
+        import certifi
         from pymongo import MongoClient
 
+        # tlsCAFile is required for Atlas from a python.org build on macOS: those
+        # interpreters do not read the system keychain, so TLS to Atlas fails with
+        # CERTIFICATE_VERIFY_FAILED. Harmless for a plain localhost connection, which
+        # is not TLS at all, so it can be passed unconditionally.
         client = MongoClient(
             os.getenv("MONGO_URI", "mongodb://localhost:27017"),
             serverSelectionTimeoutMS=1500,
+            tlsCAFile=certifi.where(),
         )
         client.admin.command("ping")
         return client[os.getenv("MONGO_DB", "airline_intel")]

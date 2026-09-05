@@ -1,5 +1,7 @@
 # Secrets — never commit
 .env
+.env.*
+!.env.example
 kaggle.json
 .kaggle/
 *.pem

@@ -17,3 +17,5 @@ python-dotenv==1.2.3
 scikit-learn==1.9.0
 scipy==1.18.1
 joblib==1.6.0
+# Atlas TLS: python.org macOS builds have no system CA bundle.
+certifi==2026.7.22
