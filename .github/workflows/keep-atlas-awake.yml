@@ -38,7 +38,7 @@ jobs:
 
       - name: Ping Atlas
         env:
-          MONGO_URI: ${{ secrets.MONGO_URI }}
+          MONGO_URI: ${{mongodb+srv://airline_app:UbmoUUbutsCckSlW@cluster0.bu8eqpd.mongodb.net/?appName=Cluster0 }}
           MONGO_DB: airline_intel
         run: |
           python - <<'PY'
