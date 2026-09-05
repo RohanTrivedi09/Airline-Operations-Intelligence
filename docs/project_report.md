@@ -159,6 +159,36 @@ optimised plans after normalising expression ids.
 | Explicit schema | 8.2× faster load than `inferSchema` |
 | Parquet vs CSV | 565 MB → 144 MB; 2.7× faster 3-of-31-column scan |
 
+### The Spark UI — lazy evaluation and the DAG, as the engine reports them
+
+Captured with `scripts/spark_ui_demo.py`, which runs a narrow pipeline, a shuffle, a
+broadcast join, a cache and a SQL query against the real 5.8M-row dataset and holds the
+session open. It is a separate script from notebook 10 on purpose: notebook 10 publishes
+benchmark timings, and driving a browser alongside it is the same concurrent load that
+invalidated the scaling measurement once already (**D5**).
+
+| View | File | What it shows |
+|---|---|---|
+| Jobs | [`spark_ui_jobs.png`](images/spark_ui_jobs.png) | 18 jobs from 5 actions — each action triggers its own job, which is lazy evaluation made visible |
+| Stages | [`spark_ui_stages.png`](images/spark_ui_stages.png) | Stage boundaries, task counts, shuffle read/write per stage |
+| **DAG** | [`spark_ui_dag.png`](images/spark_ui_dag.png) | Job 14's graph |
+| SQL / DataFrame | [`spark_ui_sql.png`](images/spark_ui_sql.png) | Catalyst's physical plans per query |
+| Storage | [`spark_ui_storage.png`](images/spark_ui_storage.png) | The cached partitions and their memory/disk split |
+
+![Spark DAG for job 14](images/spark_ui_dag.png)
+
+Three things in that DAG are worth reading directly:
+
+1. **The stage boundary is the `Exchange`.** Everything above it in Stage 24 is narrow and
+   pipelined into one `WholeStageCodegen` block; the shuffle is what forces a new stage.
+   This is the narrow-vs-wide distinction, drawn by the engine rather than asserted.
+2. **Two stages are marked *skipped*.** Spark found their shuffle output already on disk
+   from an earlier job and reused it instead of recomputing — the same lineage machinery
+   that provides fault tolerance, used here as an optimisation.
+3. **`InMemoryTableScan` appears in place of a file scan**, because that branch reads the
+   cached DataFrame. This is exactly the substitution that hid partition pruning in
+   notebook 04 until the cache was cleared before the Catalyst demonstration.
+
 ### Catalyst, read off the physical plan (notebook 04)
 
 - `PartitionFilters: [(month = 7)]` — prunes 11 of 12 directories at file level

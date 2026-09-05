@@ -52,7 +52,9 @@ notebooks/        01-12
 app/              Streamlit dashboard (Home + 7 pages)
 docs/             report, data dictionary, NoSQL, decisions, testing
 src/config.py     shared paths + Spark session factory
-scripts/          smoke_test, fetch_weather, build_inference_rates, stream_producer/consumer
+scripts/          smoke_test, smoke_test_dashboard, fetch_weather, build_inference_rates,
+                  export_serving_model, spark_ui_demo, stream_producer/consumer
+docs/images/      Spark UI captures (jobs, stages, DAG, SQL, storage)
 ```
 
 ## Progress
