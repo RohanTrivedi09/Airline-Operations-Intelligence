@@ -1,5 +1,7 @@
 # Deployment
 
+**Live at https://airline-operations-intelligence-s7eaprmlhn8atz59qjy3nj.streamlit.app** — Streamlit Community Cloud + MongoDB Atlas (M0).
+
 The dashboard is deployed to **Streamlit Community Cloud**, reading from **MongoDB Atlas**.
 Both are free tiers, and the serving layer is ~2 MB against Atlas's 512 MB limit.
 

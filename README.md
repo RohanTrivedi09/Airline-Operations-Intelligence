@@ -1,5 +1,11 @@
 # Airline Operations Intelligence Platform
 
+**Live dashboard → https://airline-operations-intelligence-s7eaprmlhn8atz59qjy3nj.streamlit.app**
+
+Deployed on Streamlit Community Cloud, reading MongoDB Atlas. The Live Monitor page shows
+its idle state there by design — its Structured Streaming producer and consumer are local
+Spark processes (see [`docs/deployment.md`](docs/deployment.md)).
+
 Big Data Analytics project over the Kaggle 2015 US flight-delays dataset (5,819,079 records):
 PySpark ETL → Spark analytics & MLlib → MongoDB serving layer → Streamlit dashboard.
 

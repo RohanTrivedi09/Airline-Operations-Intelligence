@@ -498,6 +498,7 @@ exception. Visual checks are part of the dashboard's verification for that reaso
 | Curated Parquet + marts | `data/` (git-ignored, regenerable) |
 | MongoDB serving layer | `docker compose up -d`, notebook 08 |
 | Streamlit dashboard, 7 pages | `app/` |
+| **Live deployment** | **https://airline-operations-intelligence-s7eaprmlhn8atz59qjy3nj.streamlit.app** |
 | Project report | this file |
 | Data dictionary | `docs/data_dictionary.md` |
 | NoSQL analysis | `docs/nosql_comparison.md` |
