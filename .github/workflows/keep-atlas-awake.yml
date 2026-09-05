@@ -1,0 +1,66 @@
+# Keep the MongoDB Atlas M0 cluster from auto-pausing.
+#
+# Atlas pauses a free cluster after 30 days with no activity. The dashboard only
+# connects when somebody opens it, so a quiet month would pause the serving layer
+# and the deployed app would silently fall back to the committed Parquet marts.
+# One connection a week is enough to reset that timer.
+#
+# Read-only by construction: it pings and counts. It cannot modify the marts.
+#
+# Setup (once): repo -> Settings -> Secrets and variables -> Actions ->
+#   New repository secret -> name MONGO_URI, value the same string as in .env
+#
+# CAVEAT, worth knowing: GitHub disables scheduled workflows after 60 days of
+# repository inactivity, and emails you first. If this repo goes untouched that
+# long the schedule stops and Atlas can pause again. Re-enable it from the Actions
+# tab, or just run it by hand -- the "Run workflow" button works any time.
+
+name: Keep Atlas awake
+
+on:
+  schedule:
+    # Mondays at 06:17 UTC. Deliberately not on the hour: GitHub queues scheduled
+    # jobs globally and runs at :00 are the most delayed.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:        # lets you run it by hand from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install driver
+        run: pip install --quiet "pymongo>=4.8" certifi
+
+      - name: Ping Atlas
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          MONGO_DB: airline_intel
+        run: |
+          python - <<'PY'
+          import os, sys, certifi
+          from pymongo import MongoClient
+
+          uri = os.environ.get("MONGO_URI", "")
+          if not uri:
+              sys.exit("MONGO_URI secret is not set. Add it in "
+                       "Settings > Secrets and variables > Actions.")
+
+          client = MongoClient(uri, serverSelectionTimeoutMS=20000,
+                               tlsCAFile=certifi.where())
+          client.admin.command("ping")
+          db = client[os.environ["MONGO_DB"]]
+          names = db.list_collection_names()
+          docs = sum(db[c].count_documents({}) for c in names)
+          print(f"Atlas reachable: {len(names)} collections, {docs:,} documents")
+
+          # Fail loudly if the serving layer has emptied out. A green tick that
+          # means nothing is worse than no check at all.
+          if len(names) < 20:
+              sys.exit(f"Expected 20 collections, found {len(names)}. "
+                       "Re-run notebook 08 to repopulate.")
+          PY

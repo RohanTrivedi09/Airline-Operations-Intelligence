@@ -112,6 +112,29 @@ install a 400 MB package that needs a JVM the platform does not have.
 
 ---
 
+## Step 4 — Keep the cluster from pausing
+
+Atlas pauses a free cluster after **30 days** of inactivity, emailing a warning seven days
+first. The dashboard only connects when someone opens it, so a quiet month would pause the
+serving layer.
+
+`.github/workflows/keep-atlas-awake.yml` runs a read-only ping every Monday. To arm it:
+
+> repo → **Settings → Secrets and variables → Actions → New repository secret**
+> name `MONGO_URI`, value the same string as in `.env`
+
+Then **Actions → Keep Atlas awake → Run workflow** once, to confirm it is green before
+relying on it.
+
+**Two honest caveats.** GitHub disables scheduled workflows after 60 days of repository
+inactivity (it emails first); re-enable from the Actions tab or press *Run workflow*. And
+the job deliberately **fails** if it finds fewer than 20 collections — a green tick that
+would pass on an empty database is worse than no check.
+
+**This is a convenience, not a load-bearing dependency.** If Atlas pauses anyway, the app
+still serves all seven pages from the committed Parquet marts; the home page just reports
+"Parquet (MongoDB unavailable)".
+
 ## Known limitations of the deployed version
 
 | Limitation | Why | Correct behaviour |

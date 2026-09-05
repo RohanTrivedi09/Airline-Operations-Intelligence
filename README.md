@@ -488,7 +488,7 @@ the damage.
 | [`docs/nosql_comparison.md`](docs/nosql_comparison.md) | RDBMS vs NoSQL, CAP, the four NoSQL families, document modelling, indexing, sharding and replication |
 | [`docs/engineering_decisions.md`](docs/engineering_decisions.md) | Rejected approaches, defects caught, limitations accepted, one retracted finding |
 | [`docs/testing_and_performance.md`](docs/testing_and_performance.md) | Every measured figure in one place: ETL contracts, benchmarks, ablation, streaming |
-| [`docs/deployment.md`](docs/deployment.md) | Deploying to Streamlit Community Cloud + MongoDB Atlas, and what the deployed version cannot do |
+| [`docs/deployment.md`](docs/deployment.md) | Deploying to Streamlit Community Cloud + MongoDB Atlas, and what the deployed version cannot do, and the weekly workflow that stops the free cluster pausing |
 
 ## Project status: complete
 
